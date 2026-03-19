@@ -7,14 +7,19 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.repositories.battle_repo import BattleRepository
+from app.db.repositories.effect_repo import PigEffectRepository
 from app.db.repositories.event_repo import PigEventRepository
 from app.db.repositories.group_repo import GroupRepository
 from app.db.repositories.pig_repo import PigRepository
 from app.db.repositories.user_repo import UserRepository
 from app.domain.exceptions import BattleCooldownError, ConcurrentActionError, PigBusyError, PigNotFoundError
+from app.domain.feature_catalog import get_item_definition, get_trait_definition
 from app.domain.models.pig import PigStatus
 from app.domain.rules.combat import pig_can_enter_battle, resolve_battle
 from app.domain.rules.cooldowns import ensure_utc, get_remaining_cooldown
+from app.domain.rules.pig_state import apply_loyalty_change, apply_mood_change
+from app.domain.services.item_service import ItemService
+from app.domain.services.pig_modifier_resolver import PigModifierResolver
 from app.infra.locks import RedisLockManager
 from app.schemas.battle import BattleMessagePayload
 from app.schemas.pig import BattleEntryResult
@@ -104,6 +109,9 @@ class BattleService:
         self._groups = GroupRepository(session)
         self._battles = BattleRepository(session)
         self._events = PigEventRepository(session)
+        self._effects = PigEffectRepository(session)
+        self._resolver = PigModifierResolver(session)
+        self._items = ItemService(session, rng=rng)
         self._rng = rng
         self._lock_manager = lock_manager
 
@@ -137,12 +145,24 @@ class BattleService:
 
                 pig1_weight_before = pig1.weight_kg
                 pig2_weight_before = pig2.weight_kg
+                pig1_state = await self._resolver.resolve_combat_state(pig1, now=now)
+                pig2_state = await self._resolver.resolve_combat_state(pig2, now=now)
                 pig1.status = PigStatus.IN_BATTLE
                 pig2.status = PigStatus.IN_BATTLE
 
-                result = resolve_battle(pig1, pig2, rng=self._rng, now=now)
+                result = resolve_battle(
+                    pig1,
+                    pig2,
+                    rng=self._rng,
+                    now=now,
+                    pig1_modifier=pig1_state.modifier,
+                    pig2_modifier=pig2_state.modifier,
+                    winner_reward_modifier=max(pig1_state.reward_modifier, pig2_state.reward_modifier),
+                )
                 winner = pig_map[result.winner.pig_id]
                 loser = pig_map[result.loser.pig_id]
+                winner_state = pig1_state if winner.id == pig1.id else pig2_state
+                loser_state = pig2_state if loser.id == pig2.id else pig1_state
 
                 winner.weight_kg += result.winner_gain
                 winner.wins += 1
@@ -153,8 +173,19 @@ class BattleService:
                 loser.losses += 1
                 loser.status = PigStatus.IDLE
                 loser.battle_ready_until = None
+                winner_mood_delta = apply_mood_change(winner, delta=10)
+                loser_mood_delta = apply_mood_change(
+                    loser,
+                    delta=-8 + get_trait_definition(loser.trait).battle_loss_mood_delta,
+                )
+                winner_loyalty_delta = apply_loyalty_change(winner, delta=2)
+                loser_loyalty_delta = apply_loyalty_change(loser, delta=-1)
+                for effect in winner_state.one_shot_effects + loser_state.one_shot_effects:
+                    await self._effects.consume(effect, now=now)
+                winner_broken_item = await self._wear_combat_item(winner_state.equipped_item, now=now)
+                loser_broken_item = await self._wear_combat_item(loser_state.equipped_item, now=now)
 
-                await self._battles.create(
+                battle = await self._battles.create(
                     group_id=group_id,
                     pig1_id=pig1.id,
                     pig2_id=pig2.id,
@@ -165,12 +196,25 @@ class BattleService:
                     weight_delta_winner=result.winner_gain,
                     weight_delta_loser=result.loser_loss,
                 )
+                loot = None
+                if self._rng.random() < 0.15:
+                    loot = await self._items.award_random_item(
+                        pig=winner,
+                        source_key="battle",
+                        now=now,
+                        source_type="battle",
+                        source_id=str(battle.id),
+                    )
 
                 await self._events.create(
                     pig_id=winner.id,
                     group_id=group_id,
                     event_type="battle_won",
-                    payload={"opponent_id": str(loser.id), "weight_gain": str(result.winner_gain)},
+                    payload={
+                        "opponent_id": str(loser.id),
+                        "weight_gain": str(result.winner_gain),
+                        "loot": loot.title if loot is not None else None,
+                    },
                 )
                 await self._events.create(
                     pig_id=loser.id,
@@ -178,6 +222,34 @@ class BattleService:
                     event_type="battle_lost",
                     payload={"opponent_id": str(winner.id), "weight_loss": str(result.loser_loss)},
                 )
+                if winner_mood_delta != 0:
+                    await self._events.create(
+                        pig_id=winner.id,
+                        group_id=group_id,
+                        event_type="mood_changed",
+                        payload={"delta": winner_mood_delta, "mood_score": winner.mood_score},
+                    )
+                if loser_mood_delta != 0:
+                    await self._events.create(
+                        pig_id=loser.id,
+                        group_id=group_id,
+                        event_type="mood_changed",
+                        payload={"delta": loser_mood_delta, "mood_score": loser.mood_score},
+                    )
+                if winner_loyalty_delta != 0:
+                    await self._events.create(
+                        pig_id=winner.id,
+                        group_id=group_id,
+                        event_type="loyalty_changed",
+                        payload={"delta": winner_loyalty_delta, "loyalty": winner.loyalty},
+                    )
+                if loser_loyalty_delta != 0:
+                    await self._events.create(
+                        pig_id=loser.id,
+                        group_id=group_id,
+                        event_type="loyalty_changed",
+                        payload={"delta": loser_loyalty_delta, "loyalty": loser.loyalty},
+                    )
 
                 group = await self._groups.get_by_id(group_id)
                 if group is None:
@@ -195,6 +267,10 @@ class BattleService:
             loser_name=loser.name,
             winner_gain=result.winner_gain,
             loser_loss=result.loser_loss,
+            winner_trait_title=get_trait_definition(winner.trait).title,
+            loser_trait_title=get_trait_definition(loser.trait).title,
+            winner_loot_title=loot.title if loot is not None else None,
+            broken_item_title=winner_broken_item or loser_broken_item,
         )
 
     def _is_ready(self, pig, now: datetime) -> bool:
@@ -205,3 +281,10 @@ class BattleService:
             and ready_until is not None
             and ready_until > normalized_now
         )
+
+    async def _wear_combat_item(self, item, *, now: datetime) -> str | None:
+        if item is None:
+            return None
+        if get_item_definition(item.item_code).combat_modifier <= 0:
+            return None
+        return await self._items.wear_item(item, now=now)

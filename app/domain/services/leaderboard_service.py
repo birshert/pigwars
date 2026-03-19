@@ -8,10 +8,12 @@ from app.schemas.leaderboard import LeaderboardEntry
 
 
 def _build_owner_label(user) -> str:
-    if user.username:
-        return f"@{user.username}"
     full_name = " ".join(part for part in [user.first_name, user.last_name] if part)
-    return full_name or str(user.telegram_user_id)
+    if full_name:
+        return full_name
+    if user.username:
+        return user.username
+    return str(user.telegram_user_id)
 
 
 class LeaderboardService:

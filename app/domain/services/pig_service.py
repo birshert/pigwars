@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import random
 from datetime import datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -8,22 +9,37 @@ from app.db.repositories.event_repo import PigEventRepository
 from app.db.repositories.group_repo import GroupRepository
 from app.db.repositories.pig_repo import PigRepository
 from app.db.repositories.user_repo import UserRepository
+from app.domain.feature_catalog import random_trait
 from app.domain.exceptions import InvalidPigNameError, PigAlreadyExistsError, PigNotFoundError
 from app.domain.models.pig import PigCooldowns, PigSnapshot
 from app.domain.rules.combat import STARTING_PIG_WEIGHT
 from app.domain.rules.cooldowns import get_remaining_cooldown
+from app.domain.services.pig_modifier_resolver import PigModifierResolver
 from app.schemas.pig import PigProfile
 
 
 class PigService:
-    def __init__(self, session: AsyncSession, *, feed_cooldown, battle_cooldown) -> None:
+    def __init__(
+        self,
+        session: AsyncSession,
+        *,
+        feed_cooldown,
+        battle_cooldown,
+        sabotage_cooldown,
+        raid_cooldown,
+        rng: random.Random | None = None,
+    ) -> None:
         self._session = session
         self._groups = GroupRepository(session)
         self._users = UserRepository(session)
         self._pigs = PigRepository(session)
         self._events = PigEventRepository(session)
+        self._resolver = PigModifierResolver(session)
         self._feed_cooldown = feed_cooldown
         self._battle_cooldown = battle_cooldown
+        self._sabotage_cooldown = sabotage_cooldown
+        self._raid_cooldown = raid_cooldown
+        self._rng = rng or random.Random()
 
     async def create_pig(
         self,
@@ -51,20 +67,29 @@ class PigService:
             if existing is not None:
                 raise PigAlreadyExistsError
 
+            trait = random_trait(self._rng)
             pig = await self._pigs.create(
                 group_id=group.id,
                 owner_user_id=user.id,
                 name=normalized_name,
                 weight_kg=STARTING_PIG_WEIGHT,
+                trait=trait,
             )
             await self._events.create(
                 pig_id=pig.id,
                 group_id=group.id,
                 event_type="pig_created",
-                payload={"name": pig.name, "weight_kg": str(pig.weight_kg)},
+                payload={"name": pig.name, "weight_kg": str(pig.weight_kg), "trait": pig.trait.value},
             )
+            await self._events.create(
+                pig_id=pig.id,
+                group_id=group.id,
+                event_type="trait_assigned",
+                payload={"trait": pig.trait.value},
+            )
+            profile = await self._to_profile(pig, now=now)
 
-        return self._to_profile(pig, now=now)
+        return profile
 
     async def get_pig_profile(
         self,
@@ -73,14 +98,15 @@ class PigService:
         telegram_user_id: int,
         now: datetime,
     ) -> PigProfile:
-        pig = await self._pigs.get_group_with_pig_for_owner(
-            telegram_group_id=telegram_group_id,
-            telegram_user_id=telegram_user_id,
-        )
-        if pig is None:
-            raise PigNotFoundError
+        async with self._session.begin():
+            pig = await self._pigs.get_group_with_pig_for_owner(
+                telegram_group_id=telegram_group_id,
+                telegram_user_id=telegram_user_id,
+            )
+            if pig is None:
+                raise PigNotFoundError
 
-        return self._to_profile(pig, now=now)
+            return await self._to_profile(pig, now=now)
 
     def _normalize_name(self, pig_name: str) -> str:
         normalized = " ".join(pig_name.split()).strip()
@@ -88,30 +114,50 @@ class PigService:
             raise InvalidPigNameError
         return normalized
 
-    def _to_profile(self, pig, *, now: datetime) -> PigProfile:
+    async def _to_profile(self, pig, *, now: datetime) -> PigProfile:
         snapshot = PigSnapshot(
             id=pig.id,
             name=pig.name,
             weight_kg=pig.weight_kg,
             status=pig.status,
+            trait=pig.trait,
+            mood_score=pig.mood_score,
+            loyalty=pig.loyalty,
             wins=pig.wins,
             losses=pig.losses,
             last_feed_at=pig.last_feed_at,
             last_battle_at=pig.last_battle_at,
+            last_sabotage_at=pig.last_sabotage_at,
+            last_raid_at=pig.last_raid_at,
             battle_ready_until=pig.battle_ready_until,
+            raid_until=pig.raid_until,
         )
         cooldowns = PigCooldowns(
             next_feed_in=get_remaining_cooldown(snapshot.last_feed_at, self._feed_cooldown, now),
             next_battle_in=get_remaining_cooldown(snapshot.last_battle_at, self._battle_cooldown, now),
+            next_sabotage_in=get_remaining_cooldown(snapshot.last_sabotage_at, self._sabotage_cooldown, now),
+            next_raid_in=get_remaining_cooldown(snapshot.last_raid_at, self._raid_cooldown, now),
         )
+        resolved = await self._resolver.resolve_profile_state(pig, now=now)
         return PigProfile(
             pig_id=snapshot.id,
             name=snapshot.name,
             weight_kg=snapshot.weight_kg,
             status=snapshot.status,
+            trait_title=resolved.trait_title,
+            trait_summary=resolved.trait_summary,
+            mood_score=resolved.mood_score,
+            mood_label=resolved.mood_label,
+            loyalty=snapshot.loyalty,
+            loyalty_label=resolved.loyalty_label,
             wins=snapshot.wins,
             losses=snapshot.losses,
             next_feed_in=cooldowns.next_feed_in,
             next_battle_in=cooldowns.next_battle_in,
+            next_sabotage_in=cooldowns.next_sabotage_in,
+            next_raid_in=cooldowns.next_raid_in,
             battle_ready_until=snapshot.battle_ready_until,
+            raid_until=snapshot.raid_until,
+            equipped_item=resolved.equipped_item,
+            active_effects=resolved.active_effects,
         )

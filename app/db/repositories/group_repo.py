@@ -29,3 +29,7 @@ class GroupRepository:
         self._session.add(group)
         await self._session.flush()
         return group
+
+    async def list_all(self) -> list[TelegramGroup]:
+        result = await self._session.scalars(select(TelegramGroup).order_by(TelegramGroup.id))
+        return list(result.all())

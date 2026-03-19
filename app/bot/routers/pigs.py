@@ -40,6 +40,9 @@ async def create_pig_handler(
             session,
             feed_cooldown=app_context.settings.feed_cooldown,
             battle_cooldown=app_context.settings.battle_cooldown,
+            sabotage_cooldown=app_context.settings.sabotage_cooldown,
+            raid_cooldown=app_context.settings.raid_cooldown,
+            rng=app_context.rng,
         )
         try:
             profile = await service.create_pig(
@@ -63,6 +66,7 @@ async def create_pig_handler(
         "🐷 В группе появилась новая свинья: "
         f"{profile.name}!\n"
         f"Стартовый вес: {profile.weight_kg} кг\n"
+        f"Черта: {profile.trait_title}\n"
         "Кормить можно уже сейчас. В бой тоже, если не страшно."
     )
 
@@ -81,6 +85,9 @@ async def pig_handler(message: Message, app_context: AppContext) -> None:
             session,
             feed_cooldown=app_context.settings.feed_cooldown,
             battle_cooldown=app_context.settings.battle_cooldown,
+            sabotage_cooldown=app_context.settings.sabotage_cooldown,
+            raid_cooldown=app_context.settings.raid_cooldown,
+            rng=app_context.rng,
         )
         try:
             profile = await service.get_pig_profile(
@@ -127,7 +134,7 @@ async def feed_handler(message: Message, app_context: AppContext) -> None:
             )
             return
         except PigBusyError:
-            await message.answer("Нельзя кормить свинью, пока она в боевом режиме.")
+            await message.answer("Нельзя кормить свинью, пока она занята боем или экспедицией.")
             return
         except ConcurrentActionError:
             await message.answer("Команда уже обрабатывается. Попробуй ещё раз через пару секунд.")

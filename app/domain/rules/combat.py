@@ -46,6 +46,7 @@ def build_combat_roll(
     *,
     opponent_weight_kg: Decimal,
     rng: random.Random,
+    external_modifier: Decimal = Decimal("0.00"),
 ) -> CombatRoll:
     modifier = get_tier_modifier(weight_kg)
     upset_bonus = 2 if weight_kg <= opponent_weight_kg * Decimal("0.80") else 0
@@ -53,6 +54,7 @@ def build_combat_roll(
     agility_roll = rng.randint(0, 6) + modifier.agility_bonus + upset_bonus
     power = base_power(weight_kg)
     combat_score = power + modifier.power_bonus + Decimal(random_roll + agility_roll)
+    combat_score = quantize_weight(combat_score * (Decimal("1.00") + external_modifier))
 
     return CombatRoll(
         pig_id=pig_id,
@@ -75,6 +77,9 @@ def resolve_battle(
     *,
     rng: random.Random,
     now: datetime,
+    pig1_modifier: Decimal = Decimal("0.00"),
+    pig2_modifier: Decimal = Decimal("0.00"),
+    winner_reward_modifier: Decimal = Decimal("0.00"),
 ) -> BattleResolution:
     roll1 = build_combat_roll(
         pig1.id,
@@ -82,6 +87,7 @@ def resolve_battle(
         pig1.weight_kg,
         opponent_weight_kg=pig2.weight_kg,
         rng=rng,
+        external_modifier=pig1_modifier,
     )
     roll2 = build_combat_roll(
         pig2.id,
@@ -89,6 +95,7 @@ def resolve_battle(
         pig2.weight_kg,
         opponent_weight_kg=pig1.weight_kg,
         rng=rng,
+        external_modifier=pig2_modifier,
     )
 
     if roll1.combat_score > roll2.combat_score:
@@ -105,7 +112,7 @@ def resolve_battle(
         winner, loser = roll2, roll1
 
     loser_loss = calculate_weight_loss(loser.weight_kg)
-    winner_gain = quantize_weight(loser_loss * WINNER_WEIGHT_SHARE)
+    winner_gain = quantize_weight(loser_loss * WINNER_WEIGHT_SHARE * (Decimal("1.00") + winner_reward_modifier))
 
     return BattleResolution(
         winner=winner,
@@ -126,7 +133,7 @@ def calculate_weight_loss(loser_weight_kg: Decimal) -> Decimal:
 def pig_can_enter_battle(status: PigStatus, battle_ready_until: datetime | None, now: datetime) -> bool:
     normalized_ready_until = ensure_utc(battle_ready_until)
     normalized_now = ensure_utc(now) or now
-    if status == PigStatus.IN_BATTLE:
+    if status in {PigStatus.IN_BATTLE, PigStatus.ON_RAID}:
         return False
     if status == PigStatus.BATTLE_READY and normalized_ready_until and normalized_ready_until > normalized_now:
         return False

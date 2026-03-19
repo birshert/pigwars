@@ -2,15 +2,28 @@ from __future__ import annotations
 
 from app.domain.models.pig import PigStatus
 from app.domain.rules.cooldowns import format_timedelta
+from app.domain.rules.timezones import format_datetime_msk, format_time_msk
 from app.schemas.battle import BattleMessagePayload
 from app.schemas.leaderboard import LeaderboardEntry
-from app.schemas.pig import BattleEntryResult, FeedResult, PigProfile
+from app.schemas.pig import (
+    BattleEntryResult,
+    EquipResult,
+    FeedResult,
+    InventoryView,
+    PigProfile,
+    RaidResolutionResult,
+    RaidStartResult,
+    SabotageResult,
+    UseItemResult,
+    WorldEventView,
+)
 
 
 STATUS_LABELS = {
-    PigStatus.IDLE: "idle",
-    PigStatus.BATTLE_READY: "battle_ready",
-    PigStatus.IN_BATTLE: "in_battle",
+    PigStatus.IDLE: "бездельничает",
+    PigStatus.BATTLE_READY: "ищет драку",
+    PigStatus.IN_BATTLE: "в бою",
+    PigStatus.ON_RAID: "в экспедиции",
 }
 
 
@@ -23,13 +36,19 @@ def format_start_message(*, is_group: bool) -> str:
             "/pig — посмотреть свою свинью\n"
             "/feed — покормить\n"
             "/battle — выйти на арену\n"
+            "/inventory — инвентарь\n"
+            "/equip <slot> — надеть предмет\n"
+            "/use_item <slot> — использовать предмет\n"
+            "/raid <свалка|рынок|лес> — отправить в экспедицию\n"
+            "/sabotage — диверсия в ответ на сообщение цели\n"
+            "/world — мировое событие\n"
             "/leaderboard — лидерборд группы\n"
             "/rules — краткие правила"
         )
     return (
         "🐷 PigWars работает в группах.\n\n"
         "Добавь бота в Telegram-группу и используй там:\n"
-        "/create_pig <name>, /pig, /feed, /battle, /leaderboard"
+        "/create_pig <name>, /pig, /feed, /battle, /raid, /inventory, /world"
     )
 
 
@@ -40,6 +59,12 @@ def format_help_message() -> str:
         "/pig — показать свою свинью\n"
         "/feed — кормить раз в час\n"
         "/battle — войти в боевой режим раз в 2 часа\n"
+        "/inventory — показать инвентарь\n"
+        "/equip <slot> — экипировать предмет\n"
+        "/use_item <slot> — использовать расходник\n"
+        "/raid <свалка|рынок|лес> — отправить свинью в экспедицию\n"
+        "/sabotage — ответом на сообщение цели устроить диверсию\n"
+        "/world — текущее мировое событие\n"
         "/leaderboard — топ свиней по весу\n"
         "/rules — короткие правила"
     )
@@ -52,22 +77,35 @@ def format_rules_message() -> str:
         "2. Кормить можно раз в 1 час.\n"
         "3. В боевой режим можно входить раз в 2 часа.\n"
         "4. Боевой режим живёт 15 минут.\n"
-        "5. Победитель боя тяжелеет, проигравший худеет.\n"
-        "6. Лидерборд считается по весу внутри группы."
+        "5. Экспедиции идут 2 часа и дают лут с риском.\n"
+        "6. Диверсии живут недолго и не наносят permanent-урон.\n"
+        "7. Победитель боя тяжелеет, проигравший худеет.\n"
+        "8. Лидерборд считается по весу внутри группы."
     )
 
 
 def format_pig_profile(profile: PigProfile) -> str:
     lines = [
         f"🐷 {profile.name}",
+        f"Черта: {profile.trait_title}",
+        f"Эффект черты: {profile.trait_summary}",
         f"Вес: {profile.weight_kg} кг",
         f"Статус: {STATUS_LABELS[profile.status]}",
+        f"Настроение: {profile.mood_label} ({profile.mood_score})",
+        f"Лояльность: {profile.loyalty_label} ({profile.loyalty}/100)",
         f"Победы / поражения: {profile.wins} / {profile.losses}",
+        f"Экипировка: {profile.equipped_item.title if profile.equipped_item else 'нет'}",
+        "Активные эффекты: "
+        + (", ".join(effect.title for effect in profile.active_effects) if profile.active_effects else "нет"),
         f"До следующего кормления: {format_timedelta(profile.next_feed_in)}",
         f"До следующего входа в бой: {format_timedelta(profile.next_battle_in)}",
+        f"До следующей диверсии: {format_timedelta(profile.next_sabotage_in)}",
+        f"До следующей экспедиции: {format_timedelta(profile.next_raid_in)}",
     ]
     if profile.status == PigStatus.BATTLE_READY and profile.battle_ready_until is not None:
-        lines.append(f"Ищет драку до: {profile.battle_ready_until:%H:%M UTC}")
+        lines.append(f"Ищет драку до: {format_time_msk(profile.battle_ready_until)}")
+    if profile.status == PigStatus.ON_RAID and profile.raid_until is not None:
+        lines.append(f"Вернётся из рейда к: {format_time_msk(profile.raid_until)}")
     return "\n".join(lines)
 
 
@@ -76,6 +114,8 @@ def format_feed_result(result: FeedResult) -> str:
         f"🥕 {result.pig_name} сожрал всё, что нашёл.\n"
         f"+{result.weight_gain} кг\n\n"
         f"Текущий вес: {result.current_weight} кг\n"
+        f"Настроение: {result.mood_label}\n"
+        f"Лояльность: {result.loyalty_label}\n"
         f"Следующее кормление будет доступно через {format_timedelta(result.next_feed_in)}."
     )
 
@@ -83,7 +123,7 @@ def format_feed_result(result: FeedResult) -> str:
 def format_battle_entry(result: BattleEntryResult) -> str:
     return (
         f"⚔️ {result.pig_name} вышел на арену и подозрительно хрюкает.\n"
-        f"Он будет искать драку до {result.ready_until:%H:%M UTC}.\n"
+        f"Он будет искать драку до {format_time_msk(result.ready_until)}.\n"
         f"Повторно в бой можно через {format_timedelta(result.next_battle_in)}."
     )
 
@@ -101,11 +141,86 @@ def format_leaderboard(entries: list[LeaderboardEntry]) -> str:
 
 
 def format_battle_result(payload: BattleMessagePayload) -> str:
+    lines = [
+        "🐷💥 Бой на арене!",
+        "",
+        f"{payload.pig1_name} ({payload.pig1_weight} кг) vs {payload.pig2_name} ({payload.pig2_weight} кг)",
+        "",
+        f"Победила {payload.winner_name} ({payload.winner_trait_title}) 🏆",
+        f"Проиграла {payload.loser_name} ({payload.loser_trait_title})",
+        "",
+        f"{payload.winner_name} получает +{payload.winner_gain} кг",
+        f"{payload.loser_name} теряет -{payload.loser_loss} кг",
+    ]
+    if payload.winner_loot_title is not None:
+        lines.append(f"Редкий дроп после боя: {payload.winner_loot_title}")
+    if payload.broken_item_title is not None:
+        lines.append(f"Экипировка сломалась: {payload.broken_item_title}")
+    return "\n".join(lines)
+
+
+def format_inventory(view: InventoryView) -> str:
+    if not view.items:
+        return f"🎒 У {view.pig_name} пусто. Неси её в рейды."
+
+    lines = [f"🎒 Инвентарь {view.pig_name}:"]
+    for index, item in enumerate(view.items, start=1):
+        suffix = []
+        if item.is_equipped:
+            suffix.append("надето")
+        if item.durability is not None and item.durability > 0:
+            suffix.append(f"прочность {item.durability}")
+        label = f" ({', '.join(suffix)})" if suffix else ""
+        lines.append(f"{index}. {item.title}{label}")
+        lines.append(f"   {item.summary}")
+    return "\n".join(lines)
+
+
+def format_equip_result(result: EquipResult) -> str:
+    return f"🪖 {result.pig_name} теперь носит: {result.item_title}."
+
+
+def format_use_item_result(result: UseItemResult) -> str:
+    return f"🧪 {result.pig_name} использовала «{result.item_title}».\n{result.outcome_text}"
+
+
+def format_raid_start(result: RaidStartResult) -> str:
     return (
-        "🐷💥 Бой на арене!\n\n"
-        f"{payload.pig1_name} ({payload.pig1_weight} кг) vs {payload.pig2_name} ({payload.pig2_weight} кг)\n\n"
-        "После короткой, но унизительной свиной схватки\n"
-        f"победил: {payload.winner_name} 🏆\n\n"
-        f"{payload.winner_name} получает +{payload.winner_gain} кг\n"
-        f"{payload.loser_name} теряет -{payload.loser_loss} кг"
+        f"🗺️ {result.pig_name} ушла в экспедицию: {result.destination_title}.\n"
+        f"Возврат ожидается к {format_time_msk(result.resolve_at)}.\n"
+        f"Новый рейд будет доступен через {format_timedelta(result.next_raid_in)}."
     )
+
+
+def format_raid_result(result: RaidResolutionResult) -> str:
+    lines = [
+        f"🗺️ {result.outcome_title}: {result.pig_name}",
+        f"Направление: {result.destination_title}",
+        result.narrative,
+        f"Настроение сейчас: {result.mood_label}",
+        f"Лояльность сейчас: {result.loyalty_label}",
+    ]
+    if result.weight_change > 0:
+        lines.append(f"Прирост веса: +{result.weight_change} кг")
+    if result.found_item_title is not None:
+        lines.append(f"Найден предмет: {result.found_item_title}")
+    if result.granted_effect_title is not None:
+        lines.append(f"Получен эффект: {result.granted_effect_title}")
+    return "\n".join(lines)
+
+
+def format_sabotage_result(result: SabotageResult) -> str:
+    title = "🧨 Диверсия удалась" if result.success else "🧨 Диверсия провалилась"
+    return f"{title}\n{result.narrative}"
+
+
+def format_world_event(view: WorldEventView) -> str:
+    lines = [
+        f"🌍 {view.title}",
+        view.description,
+        "",
+        "Эффекты:",
+    ]
+    lines.extend(f"• {effect}" for effect in view.effects)
+    lines.append(f"До конца: {format_datetime_msk(view.ends_at)}")
+    return "\n".join(lines)

@@ -10,20 +10,33 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
 from app.db.models import Pig, TelegramGroup, TelegramUser
-from app.domain.models.pig import PigStatus
+from app.domain.models.pig import PigStatus, PigTrait
 
 
 class PigRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def create(self, *, group_id: int, owner_user_id: int, name: str, weight_kg: Decimal) -> Pig:
+    async def create(
+        self,
+        *,
+        group_id: int,
+        owner_user_id: int,
+        name: str,
+        weight_kg: Decimal,
+        trait: PigTrait,
+        mood_score: int = 0,
+        loyalty: int = 50,
+    ) -> Pig:
         pig = Pig(
             group_id=group_id,
             owner_user_id=owner_user_id,
             name=name,
             weight_kg=weight_kg,
             status=PigStatus.IDLE,
+            trait=trait,
+            mood_score=mood_score,
+            loyalty=loyalty,
         )
         self._session.add(pig)
         await self._session.flush()
@@ -48,6 +61,14 @@ class PigRepository:
         stmt = select(Pig).where(Pig.id.in_(pig_ids)).with_for_update()
         result = await self._session.scalars(stmt)
         return list(result.all())
+
+    async def get_by_id(self, pig_id: UUID) -> Pig | None:
+        stmt = select(Pig).where(Pig.id == pig_id)
+        return await self._session.scalar(stmt)
+
+    async def get_by_id_for_update(self, pig_id: UUID) -> Pig | None:
+        stmt = select(Pig).where(Pig.id == pig_id).with_for_update()
+        return await self._session.scalar(stmt)
 
     async def list_ready_pigs(self, *, group_id: int, now: datetime, limit: int) -> list[Pig]:
         stmt = (
@@ -104,6 +125,24 @@ class PigRepository:
         return list(result.all())
 
     async def get_group_with_pig_for_owner(self, *, telegram_group_id: int, telegram_user_id: int) -> Pig | None:
+        stmt = (
+            select(Pig)
+            .join(TelegramGroup, Pig.group_id == TelegramGroup.id)
+            .join(TelegramUser, Pig.owner_user_id == TelegramUser.id)
+            .where(
+                TelegramGroup.telegram_group_id == telegram_group_id,
+                TelegramUser.telegram_user_id == telegram_user_id,
+            )
+            .options(joinedload(Pig.owner), joinedload(Pig.group))
+        )
+        return await self._session.scalar(stmt)
+
+    async def get_group_with_pig_by_owner_telegram_id(
+        self,
+        *,
+        telegram_group_id: int,
+        telegram_user_id: int,
+    ) -> Pig | None:
         stmt = (
             select(Pig)
             .join(TelegramGroup, Pig.group_id == TelegramGroup.id)

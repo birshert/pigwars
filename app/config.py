@@ -22,8 +22,13 @@ class Settings(BaseSettings):
     battle_ready_ttl_minutes: int = Field(15, alias="BATTLE_READY_TTL_MINUTES")
     feed_cooldown_minutes: int = Field(60, alias="FEED_COOLDOWN_MINUTES")
     battle_cooldown_minutes: int = Field(120, alias="BATTLE_COOLDOWN_MINUTES")
+    raid_cooldown_minutes: int = Field(480, alias="RAID_COOLDOWN_MINUTES")
+    raid_duration_minutes: int = Field(120, alias="RAID_DURATION_MINUTES")
+    sabotage_cooldown_minutes: int = Field(480, alias="SABOTAGE_COOLDOWN_MINUTES")
+    world_event_duration_hours: int = Field(48, alias="WORLD_EVENT_DURATION_HOURS")
     matchmaking_interval_seconds: int = Field(30, alias="MATCHMAKING_INTERVAL_SECONDS")
     matchmaking_batch_size: int = Field(100, alias="MATCHMAKING_BATCH_SIZE")
+    raid_resolution_batch_size: int = Field(100, alias="RAID_RESOLUTION_BATCH_SIZE")
     telegram_update_dedup_ttl_seconds: int = Field(
         300,
         alias="TELEGRAM_UPDATE_DEDUP_TTL_SECONDS",
@@ -55,6 +60,22 @@ class Settings(BaseSettings):
     @property
     def battle_ready_ttl(self) -> timedelta:
         return timedelta(minutes=self.battle_ready_ttl_minutes)
+
+    @property
+    def raid_cooldown(self) -> timedelta:
+        return timedelta(minutes=self.raid_cooldown_minutes)
+
+    @property
+    def raid_duration(self) -> timedelta:
+        return timedelta(minutes=self.raid_duration_minutes)
+
+    @property
+    def sabotage_cooldown(self) -> timedelta:
+        return timedelta(minutes=self.sabotage_cooldown_minutes)
+
+    @property
+    def world_event_duration(self) -> timedelta:
+        return timedelta(hours=self.world_event_duration_hours)
 
 
 @lru_cache(maxsize=1)

@@ -50,7 +50,7 @@ async def battle_handler(message: Message, app_context: AppContext) -> None:
             )
             return
         except PigBusyError:
-            await message.answer("Свинья уже ищет драку или прямо сейчас участвует в бою.")
+            await message.answer("Свинья уже ищет драку, дерётся или ушла в экспедицию.")
             return
         except ConcurrentActionError:
             await message.answer("Команда уже обрабатывается. Попробуй ещё раз через пару секунд.")

@@ -37,9 +37,45 @@ class BattleCooldownError(CooldownError):
     """Raised when battle mode is on cooldown."""
 
 
+class RaidCooldownError(CooldownError):
+    """Raised when raids are on cooldown."""
+
+
+class SabotageCooldownError(CooldownError):
+    """Raised when sabotage is on cooldown."""
+
+
 class PigBusyError(PigWarsError):
     """Raised when the pig cannot perform an action due to current status."""
 
 
 class ConcurrentActionError(PigWarsError):
     """Raised when a lock could not be acquired."""
+
+
+class InventoryFullError(PigWarsError):
+    """Raised when pig inventory is full."""
+
+
+class ItemNotFoundError(PigWarsError):
+    """Raised when an item does not exist in inventory."""
+
+
+class ItemEquipError(PigWarsError):
+    """Raised when an item cannot be equipped."""
+
+
+class ItemUseError(PigWarsError):
+    """Raised when an item cannot be used."""
+
+
+class SabotageTargetError(PigWarsError):
+    """Raised when sabotage target is invalid."""
+
+
+class SabotageBlockedError(PigWarsError):
+    """Raised when sabotage cannot be applied."""
+
+
+class RaidRefusedError(PigWarsError):
+    """Raised when the pig refuses to go on a raid."""

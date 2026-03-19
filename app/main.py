@@ -29,6 +29,12 @@ async def main() -> None:
             BotCommand(command="pig", description="Show your pig"),
             BotCommand(command="feed", description="Feed your pig"),
             BotCommand(command="battle", description="Enter battle queue"),
+            BotCommand(command="inventory", description="Show pig inventory"),
+            BotCommand(command="equip", description="Equip an item by slot"),
+            BotCommand(command="use_item", description="Use an item by slot"),
+            BotCommand(command="raid", description="Send pig on a raid"),
+            BotCommand(command="sabotage", description="Sabotage reply target"),
+            BotCommand(command="world", description="Show current world event"),
             BotCommand(command="leaderboard", description="Show group leaderboard"),
             BotCommand(command="rules", description="Show game rules"),
         ]
