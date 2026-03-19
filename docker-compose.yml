@@ -49,5 +49,17 @@ services:
       - .env
     restart: unless-stopped
 
+  web:
+    build: .
+    command: uv run python -m app.web.main
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - .env
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+
 volumes:
   pg_data:

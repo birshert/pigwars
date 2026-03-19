@@ -154,3 +154,15 @@ class PigRepository:
             .options(joinedload(Pig.owner), joinedload(Pig.group))
         )
         return await self._session.scalar(stmt)
+
+    async def list_by_owner_telegram_id(self, *, telegram_user_id: int) -> list[Pig]:
+        stmt = (
+            select(Pig)
+            .join(TelegramUser, Pig.owner_user_id == TelegramUser.id)
+            .join(TelegramGroup, Pig.group_id == TelegramGroup.id)
+            .where(TelegramUser.telegram_user_id == telegram_user_id)
+            .options(joinedload(Pig.owner), joinedload(Pig.group))
+            .order_by(TelegramGroup.title.asc(), Pig.created_at.asc())
+        )
+        result = await self._session.scalars(stmt)
+        return list(result.unique().all())

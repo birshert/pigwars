@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
 
 from aiogram import Router
@@ -7,11 +8,13 @@ from aiogram.filters import Command, CommandObject
 from aiogram.types import Message
 
 from app.bootstrap import AppContext
+from app.bot.keyboards.admin import build_admin_dashboard_keyboard
 from app.bot.utils import is_group_chat
 from app.daily_digest import list_due_digest_groups, send_digest_for_group
 from app.db.base import session_scope
 from app.db.repositories.group_repo import GroupRepository
 from app.domain.rules.timezones import get_game_day
+from app.infra.ngrok import resolve_admin_mini_app_url
 
 
 ADMIN_TELEGRAM_USER_ID = 241301944
@@ -19,6 +22,39 @@ MANUAL_DIGEST_GROUP_LIMIT = 1000
 
 
 router = Router(name="admin")
+
+
+def _is_admin_user(app_context: AppContext, telegram_user_id: int) -> bool:
+    settings = getattr(app_context, "settings", None)
+    settings_match = bool(
+        settings is not None and settings.is_admin_telegram_user(telegram_user_id)
+    )
+    return (
+        settings_match
+        or telegram_user_id == ADMIN_TELEGRAM_USER_ID
+    )
+
+
+@router.message(Command("admin"))
+async def admin_dashboard_handler(message: Message, app_context: AppContext) -> None:
+    if message.chat.type != "private":
+        await message.answer("Админ-панель открывается только в личке с ботом.")
+        return
+    if message.from_user is None or not _is_admin_user(app_context, message.from_user.id):
+        await message.answer("У тебя нет доступа к админ-панели.")
+        return
+    admin_url = await asyncio.to_thread(resolve_admin_mini_app_url, app_context.settings)
+    if not admin_url:
+        await message.answer(
+            "Не удалось определить публичный URL админки. "
+            "Либо задай MINI_APP_URL, либо запусти ngrok на 8080."
+        )
+        return
+
+    await message.answer(
+        "Открыть админ-дашборд PigWars:",
+        reply_markup=build_admin_dashboard_keyboard(admin_url),
+    )
 
 
 @router.message(Command("admin_digest"))
@@ -33,7 +69,7 @@ async def admin_digest_handler(
     if message.chat.type != "private":
         await message.answer("Эта команда работает только в личке.")
         return
-    if message.from_user is None or message.from_user.id != ADMIN_TELEGRAM_USER_ID:
+    if message.from_user is None or not _is_admin_user(app_context, message.from_user.id):
         await message.answer("Команда недоступна.")
         return
 

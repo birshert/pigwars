@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <title>PigWars Admin</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=Space+Grotesk:wght@500;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/admin/assets/app.css" />
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script defer src="/admin/assets/app.js"></script>
+  </head>
+  <body>
+    <div class="shell">
+      <header class="hero">
+        <div class="hero__copy">
+          <p class="eyebrow">PigWars control room</p>
+          <h1>Админ-дашборд бота</h1>
+          <p class="hero__lead">
+            Живые метрики, состояние игровых групп и оперативная лента событий прямо внутри Telegram.
+          </p>
+        </div>
+        <div class="hero__meta">
+          <div class="meta-card">
+            <span class="meta-card__label">Сессия</span>
+            <strong id="viewer-name">Подключение...</strong>
+          </div>
+          <div class="meta-card">
+            <span class="meta-card__label">Синхронизация</span>
+            <strong id="generated-at">Ожидание данных</strong>
+          </div>
+          <button id="refresh-button" class="refresh-button" type="button">Обновить</button>
+        </div>
+      </header>
+
+      <main class="layout">
+        <section class="panel">
+          <div class="panel__header">
+            <div>
+              <p class="panel__eyebrow">Статус</p>
+              <h2>Обзор бота</h2>
+            </div>
+            <span id="status-pill" class="status-pill status-pill--loading">Загрузка</span>
+          </div>
+          <div id="overview-grid" class="overview-grid"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel__header">
+            <div>
+              <p class="panel__eyebrow">Мир</p>
+              <h2>Активные мировые события</h2>
+            </div>
+          </div>
+          <div id="world-events" class="world-events"></div>
+        </section>
+
+        <section class="panel panel--wide">
+          <div class="panel__header">
+            <div>
+              <p class="panel__eyebrow">Топ</p>
+              <h2>Самые жирные свиньи</h2>
+            </div>
+          </div>
+          <div id="top-pigs" class="table-shell"></div>
+        </section>
+
+        <section class="panel panel--wide">
+          <div class="panel__header">
+            <div>
+              <p class="panel__eyebrow">Группы</p>
+              <h2>Игровые чаты</h2>
+            </div>
+          </div>
+          <div id="groups-table" class="table-shell"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel__header">
+            <div>
+              <p class="panel__eyebrow">Арена</p>
+              <h2>Последние бои</h2>
+            </div>
+          </div>
+          <div id="recent-battles" class="feed"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel__header">
+            <div>
+              <p class="panel__eyebrow">Рейды</p>
+              <h2>Последние вылазки</h2>
+            </div>
+          </div>
+          <div id="recent-raids" class="feed"></div>
+        </section>
+
+        <section class="panel panel--wide">
+          <div class="panel__header">
+            <div>
+              <p class="panel__eyebrow">Лента</p>
+              <h2>Недавние действия</h2>
+            </div>
+          </div>
+          <div id="recent-events" class="feed feed--compact"></div>
+        </section>
+      </main>
+    </div>
+  </body>
+</html>

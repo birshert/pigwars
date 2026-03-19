@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import timedelta
 from functools import lru_cache
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -39,13 +39,45 @@ class Settings(BaseSettings):
         300,
         alias="TELEGRAM_UPDATE_DEDUP_TTL_SECONDS",
     )
+    mini_app_url: str | None = Field(None, alias="MINI_APP_URL")
+    player_mini_app_url: str | None = Field(None, alias="PLAYER_MINI_APP_URL")
+    admin_telegram_user_ids: tuple[int, ...] = Field(default_factory=tuple, alias="ADMIN_TELEGRAM_USER_IDS")
+    web_host: str = Field("0.0.0.0", alias="WEB_HOST")
+    web_port: int = Field(8080, alias="WEB_PORT")
+    ngrok_api_url: str | None = Field(None, alias="NGROK_API_URL")
+    telegram_webapp_auth_max_age_seconds: int = Field(
+        86400,
+        alias="TELEGRAM_WEBAPP_AUTH_MAX_AGE_SECONDS",
+    )
 
     match_base_probability: float = 0.35
     match_wait_bonus: float = 0.10
     match_wait_bonus_every_seconds: int = 120
     match_probability_cap: float = 0.85
 
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+        populate_by_name=True,
+    )
+
+    @field_validator("admin_telegram_user_ids", mode="before")
+    @classmethod
+    def _parse_admin_telegram_user_ids(cls, value: object) -> tuple[int, ...]:
+        if value in (None, "", ()):
+            return ()
+        if isinstance(value, str):
+            return tuple(
+                int(chunk.strip())
+                for chunk in value.split(",")
+                if chunk.strip()
+            )
+        if isinstance(value, int):
+            return (value,)
+        if isinstance(value, (list, tuple, set)):
+            return tuple(int(item) for item in value)
+        raise TypeError("ADMIN_TELEGRAM_USER_IDS must be a comma-separated string or a sequence of integers")
 
     @property
     def postgres_dsn(self) -> str:
@@ -82,6 +114,9 @@ class Settings(BaseSettings):
     @property
     def world_event_duration(self) -> timedelta:
         return timedelta(hours=self.world_event_duration_hours)
+
+    def is_admin_telegram_user(self, telegram_user_id: int) -> bool:
+        return telegram_user_id in self.admin_telegram_user_ids
 
 
 @lru_cache(maxsize=1)

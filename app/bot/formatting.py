@@ -51,18 +51,23 @@ def format_start_message(*, is_group: bool) -> str:
             "/sabotage — диверсия в ответ на сообщение цели\n"
             "/world — мировое событие\n"
             "/leaderboard — лидерборд группы\n"
-            "/rules — краткие правила"
+            "/rules — краткие правила\n\n"
+            "В личке с ботом:\n"
+            "/dashboard — личный mini app дашборд"
         )
     return (
         "🐷 PigWars работает в группах.\n\n"
         "Добавь бота в Telegram-группу и используй там:\n"
-        "/create_pig <name>, /rename_pig <name>, /pig, /feed, /battle, /daily, /raid, /inventory, /world"
+        "/create_pig <name>, /rename_pig <name>, /pig, /feed, /battle, /daily, /raid, /inventory, /world\n\n"
+        "В личке доступен:\n"
+        "/dashboard — твой mini app дашборд со всеми свиньями"
     )
 
 
 def format_help_message() -> str:
     return (
         "Команды PigWars:\n"
+        "/dashboard — открыть личный mini app дашборд\n"
         "/create_pig <name> — создать свинью в этой группе\n"
         "/rename_pig <name> — переименовать свою свинью\n"
         "/pig — показать свою свинью\n"
