@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from html import escape
+
 from app.domain.models.pig import PigStatus
 from app.domain.rules.cooldowns import format_timedelta
 from app.domain.rules.timezones import format_datetime_msk, format_time_msk
@@ -7,12 +9,15 @@ from app.schemas.battle import BattleMessagePayload
 from app.schemas.leaderboard import LeaderboardEntry
 from app.schemas.pig import (
     BattleEntryResult,
+    DailyActionResult,
+    DailyView,
     EquipResult,
     FeedResult,
     InventoryView,
     PigProfile,
     RaidResolutionResult,
     RaidStartResult,
+    RenamePigResult,
     SabotageResult,
     UseItemResult,
     WorldEventView,
@@ -33,9 +38,11 @@ def format_start_message(*, is_group: bool) -> str:
             "🐷 PigWars в строю.\n\n"
             "Команды:\n"
             "/create_pig <name> — создать свинью\n"
+            "/rename_pig <name> — переименовать свинью\n"
             "/pig — посмотреть свою свинью\n"
             "/feed — покормить\n"
             "/battle — выйти на арену\n"
+            "/daily — дневные ритуалы\n"
             "/inventory — инвентарь\n"
             "/equip <slot> — надеть предмет\n"
             "/use_item <slot> — использовать предмет\n"
@@ -48,7 +55,7 @@ def format_start_message(*, is_group: bool) -> str:
     return (
         "🐷 PigWars работает в группах.\n\n"
         "Добавь бота в Telegram-группу и используй там:\n"
-        "/create_pig <name>, /pig, /feed, /battle, /raid, /inventory, /world"
+        "/create_pig <name>, /rename_pig <name>, /pig, /feed, /battle, /daily, /raid, /inventory, /world"
     )
 
 
@@ -56,12 +63,14 @@ def format_help_message() -> str:
     return (
         "Команды PigWars:\n"
         "/create_pig <name> — создать свинью в этой группе\n"
+        "/rename_pig <name> — переименовать свою свинью\n"
         "/pig — показать свою свинью\n"
         "/feed — кормить раз в час\n"
         "/battle — войти в боевой режим раз в 2 часа\n"
+        "/daily — гороскоп, корыто и колесо позора\n"
         "/inventory — показать инвентарь\n"
         "/equip <slot> — экипировать предмет\n"
-        "/use_item <slot> — использовать расходник\n"
+        "/use_item <slot> — использовать расходник; мокрую газету кидай reply-целью\n"
         "/raid <свалка|рынок|лес> — отправить свинью в вылазку\n"
         "/sabotage — ответом на сообщение цели устроить диверсию\n"
         "/world — текущее мировое событие\n"
@@ -97,11 +106,14 @@ def format_pig_profile(profile: PigProfile) -> str:
         f"Экипировка: {profile.equipped_item.title if profile.equipped_item else 'нет'}",
         "Активные эффекты: "
         + (", ".join(effect.title for effect in profile.active_effects) if profile.active_effects else "нет"),
+        f"Мировое событие: {profile.world_event_title or 'нет'}",
         f"До следующего кормления: {format_timedelta(profile.next_feed_in)}",
         f"До следующего входа в бой: {format_timedelta(profile.next_battle_in)}",
         f"До следующей диверсии: {format_timedelta(profile.next_sabotage_in)}",
         f"До следующего рейда: {format_timedelta(profile.next_raid_in)}",
     ]
+    if profile.world_event_title and profile.world_event_description:
+        lines.append(f"Фон дня: {profile.world_event_description}")
     if profile.status == PigStatus.BATTLE_READY and profile.battle_ready_until is not None:
         lines.append(f"Ищет драку до: {format_time_msk(profile.battle_ready_until)}")
     if profile.status == PigStatus.ON_RAID and profile.raid_until is not None:
@@ -152,6 +164,8 @@ def format_battle_result(payload: BattleMessagePayload) -> str:
         f"{payload.winner_name} получает +{payload.winner_gain} кг",
         f"{payload.loser_name} теряет -{payload.loser_loss} кг",
     ]
+    if payload.flavor_text is not None:
+        lines.append(payload.flavor_text)
     if payload.winner_loot_title is not None:
         lines.append(f"Редкий дроп после боя: {payload.winner_loot_title}")
     if payload.broken_item_title is not None:
@@ -184,6 +198,62 @@ def format_use_item_result(result: UseItemResult) -> str:
     return f"🧪 {result.pig_name} использовала «{result.item_title}».\n{result.outcome_text}"
 
 
+def format_rename_pig_result(result: RenamePigResult) -> str:
+    if not result.changed:
+        return f"🐷 Имя не изменилось: свинью уже зовут {result.new_name}."
+    return f"🐷 Свинья переименована: {result.old_name} -> {result.new_name}."
+
+
+def format_daily_view(view: DailyView) -> str:
+    lines = [
+        f"🌤️ /daily для {view.pig_name}",
+        "",
+        f"Свинский гороскоп: {view.horoscope_title}",
+        view.horoscope_text,
+        "",
+        f"{view.trough.action_name}: "
+        + ("доступно" if view.trough.available else f"уже разыграно — {view.trough.result_title}"),
+    ]
+    if view.trough.available:
+        lines.append(f"Запуск: {view.trough.command_hint}")
+    elif view.trough.result_text:
+        lines.append(view.trough.result_text)
+
+    lines.extend(
+        [
+            "",
+            f"{view.wheel.action_name}: "
+            + ("доступно" if view.wheel.available else f"уже крутануто — {view.wheel.result_title}"),
+        ]
+    )
+    if view.wheel.available:
+        lines.append(f"Запуск: {view.wheel.command_hint}")
+    elif view.wheel.result_text:
+        lines.append(view.wheel.result_text)
+
+    lines.extend(
+        [
+            "",
+            "Активные статусы: "
+            + (", ".join(effect.title for effect in view.active_effects) if view.active_effects else "нет"),
+        ]
+    )
+    if view.world_event_title is not None:
+        lines.append(f"Глобальная встряска: {view.world_event_title}")
+        if view.world_event_description:
+            lines.append(view.world_event_description)
+    return "\n".join(lines)
+
+
+def format_daily_action_result(result: DailyActionResult) -> str:
+    prefix = "уже было сегодня" if result.already_used else "сработало"
+    return (
+        f"🎲 {result.action_name}: {prefix}\n"
+        f"{result.result_title}\n"
+        f"{result.result_text}"
+    )
+
+
 def format_raid_start(result: RaidStartResult) -> str:
     return (
         f"🗺️ {result.pig_name} ушла в вылазку: {result.destination_title}.\n"
@@ -206,6 +276,35 @@ def format_raid_result(result: RaidResolutionResult) -> str:
         lines.append(f"Найден предмет: {result.found_item_title}")
     if result.granted_effect_title is not None:
         lines.append(f"Получен эффект: {result.granted_effect_title}")
+    return "\n".join(lines)
+
+
+def format_raid_result_html(result: RaidResolutionResult) -> str:
+    lines: list[str] = []
+    if result.owner_telegram_user_id is not None and result.owner_mention_label is not None:
+        mention_label = escape(result.owner_mention_label)
+        lines.append(
+            f"🐷 <a href=\"tg://user?id={result.owner_telegram_user_id}\">{mention_label}</a>, "
+            f"{escape(result.pig_name)} вернулась из рейда."
+        )
+    else:
+        lines.append(f"🐷 {escape(result.pig_name)} вернулась из рейда.")
+
+    lines.extend(
+        [
+            f"🗺️ {escape(result.outcome_title)}: {escape(result.pig_name)}",
+            f"Направление: {escape(result.destination_title)}",
+            escape(result.narrative),
+            f"Настроение сейчас: {escape(result.mood_label)}",
+            f"Лояльность сейчас: {escape(result.loyalty_label)}",
+        ]
+    )
+    if result.weight_change > 0:
+        lines.append(f"Прирост веса: +{result.weight_change} кг")
+    if result.found_item_title is not None:
+        lines.append(f"Найден предмет: {escape(result.found_item_title)}")
+    if result.granted_effect_title is not None:
+        lines.append(f"Получен эффект: {escape(result.granted_effect_title)}")
     return "\n".join(lines)
 
 

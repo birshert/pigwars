@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import random
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings
 from app.db.repositories.world_event_repo import WorldEventRepository
-from app.domain.feature_catalog import get_world_event_definition, pick_next_world_event
+from app.domain.feature_catalog import WORLD_EVENT_DIVINE_OINK, get_world_event_definition, pick_next_world_event
 from app.domain.rules.timezones import format_datetime_msk
 from app.schemas.pig import WorldEventView
 
@@ -26,12 +26,17 @@ class WorldEventService:
 
         latest = await self._world_events.get_latest()
         definition = pick_next_world_event(rng=self._rng, previous_code=latest.event_code if latest else None)
+        duration = (
+            timedelta(hours=definition.duration_hours)
+            if definition.duration_hours is not None
+            else self._settings.world_event_duration
+        )
         return await self._world_events.create(
             event_code=definition.code,
             title=definition.title,
             description=definition.description,
             starts_at=now,
-            ends_at=now + self._settings.world_event_duration,
+            ends_at=now + duration,
             modifiers={"code": definition.code},
         )
 
@@ -50,7 +55,15 @@ class WorldEventService:
 
     def build_announcement(self, event) -> str:
         definition = get_world_event_definition(event.event_code)
-        lines = [f"🌍 Мировое событие: {event.title}", event.description, ""]
+        if event.event_code == WORLD_EVENT_DIVINE_OINK:
+            lines = [
+                "🐽 Великая Свинья объявилась в небе.",
+                f"Божественный хрюк: {event.title}",
+                event.description,
+                "",
+            ]
+        else:
+            lines = [f"🌍 Мировое событие: {event.title}", event.description, ""]
         lines.extend(f"• {effect}" for effect in self._format_effects(definition))
         lines.append(f"До конца: {format_datetime_msk(event.ends_at)}")
         return "\n".join(lines)

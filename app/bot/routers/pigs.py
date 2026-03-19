@@ -7,7 +7,7 @@ from aiogram.filters import Command, CommandObject
 from aiogram.types import Message
 
 from app.bootstrap import AppContext
-from app.bot.formatting import format_feed_result, format_pig_profile
+from app.bot.formatting import format_feed_result, format_pig_profile, format_rename_pig_result
 from app.bot.utils import is_group_chat
 from app.db.base import session_scope
 from app.domain.exceptions import ConcurrentActionError, FeedCooldownError, InvalidPigNameError, PigAlreadyExistsError, PigBusyError, PigNotFoundError
@@ -69,6 +69,48 @@ async def create_pig_handler(
         f"Черта: {profile.trait_title}\n"
         "Кормить можно уже сейчас. В бой тоже, если не страшно."
     )
+
+
+@router.message(Command("rename_pig"))
+async def rename_pig_handler(
+    message: Message,
+    command: CommandObject,
+    app_context: AppContext,
+) -> None:
+    if not is_group_chat(message):
+        await message.answer("Эта команда работает только в группе.")
+        return
+    if message.from_user is None:
+        return
+    if not command.args:
+        await message.answer("Использование: /rename_pig <new name>")
+        return
+
+    now = datetime.now(timezone.utc)
+    async with session_scope(app_context.session_factory) as session:
+        service = PigService(
+            session,
+            feed_cooldown=app_context.settings.feed_cooldown,
+            battle_cooldown=app_context.settings.battle_cooldown,
+            sabotage_cooldown=app_context.settings.sabotage_cooldown,
+            raid_cooldown=app_context.settings.raid_cooldown,
+            rng=app_context.rng,
+        )
+        try:
+            result = await service.rename_pig(
+                telegram_group_id=message.chat.id,
+                telegram_user_id=message.from_user.id,
+                new_name=command.args,
+                now=now,
+            )
+        except InvalidPigNameError:
+            await message.answer("Имя свиньи должно быть длиной от 3 до 40 символов.")
+            return
+        except PigNotFoundError:
+            await message.answer("В этой группе у тебя пока нет свиньи. Создай её через /create_pig <name>.")
+            return
+
+    await message.answer(format_rename_pig_result(result))
 
 
 @router.message(Command("pig"))

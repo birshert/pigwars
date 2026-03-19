@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import BigInteger, Boolean, CheckConstraint, DateTime, Enum, ForeignKey, Integer, JSON, Numeric, String, UniqueConstraint, func
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, Date, DateTime, Enum, ForeignKey, Integer, JSON, Numeric, String, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -111,6 +111,7 @@ class Pig(Base):
     items: Mapped[list["PigItem"]] = relationship(back_populates="pig")
     effects: Mapped[list["PigEffect"]] = relationship(back_populates="pig")
     raids: Mapped[list["PigRaid"]] = relationship(back_populates="pig")
+    daily_actions: Mapped[list["PigDailyAction"]] = relationship(back_populates="pig")
 
 
 class Battle(Base):
@@ -148,6 +149,27 @@ class PigEvent(Base):
         server_default=func.now(),
         nullable=False,
     )
+
+
+class PigDailyAction(Base):
+    __tablename__ = "pig_daily_actions"
+    __table_args__ = (
+        UniqueConstraint("pig_id", "action_type", "action_day", name="uq_pig_daily_actions_identity"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    pig_id: Mapped[UUID] = mapped_column(ForeignKey("pigs.id"), index=True)
+    action_type: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    action_day: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    result_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    payload: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+    pig: Mapped[Pig] = relationship(back_populates="daily_actions")
 
 
 class PigItem(Base):

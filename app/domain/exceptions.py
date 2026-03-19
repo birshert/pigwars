@@ -69,6 +69,14 @@ class ItemUseError(PigWarsError):
     """Raised when an item cannot be used."""
 
 
+class WetNewspaperTargetError(PigWarsError):
+    """Raised when wet newspaper target is missing or invalid."""
+
+
+class WetNewspaperBlockedError(PigWarsError):
+    """Raised when wet newspaper cannot be applied to the target."""
+
+
 class SabotageTargetError(PigWarsError):
     """Raised when sabotage target is invalid."""
 

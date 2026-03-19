@@ -20,6 +20,7 @@ from app.domain.feature_catalog import (
     EFFECT_GOOD_OMENS,
     EFFECT_MUDDY_PANIC,
     EFFECT_ROUTE_CONFUSED,
+    get_effect_definition,
     get_item_definition,
     get_loyalty_label,
     get_mood_label,
@@ -30,6 +31,7 @@ from app.domain.models.pig import PigRaidStatus, PigStatus, RaidDestination
 from app.domain.rules.combat import quantize_weight
 from app.domain.rules.cooldowns import get_remaining_cooldown
 from app.domain.rules.pig_state import apply_loyalty_change, apply_mood_change
+from app.domain.services.daily_feature_service import DailyFeatureService
 from app.domain.services.item_service import ItemService
 from app.domain.services.pig_modifier_resolver import PigModifierResolver
 from app.schemas.pig import RaidResolutionResult, RaidStartResult
@@ -48,6 +50,7 @@ class RaidService:
         self._raids = PigRaidRepository(session)
         self._resolver = PigModifierResolver(session)
         self._items = ItemService(session, rng=rng)
+        self._daily = DailyFeatureService(session, rng=rng)
 
     async def start_raid(
         self,
@@ -71,6 +74,7 @@ class RaidService:
                 apply_loyalty_change(pig, delta=-2)
                 raise RaidRefusedError
 
+            await self._daily.ensure_horoscope_for_pig(pig, now=now)
             resolve_at = now + self._settings.raid_duration
             pig.status = PigStatus.ON_RAID
             pig.last_raid_at = now
@@ -118,6 +122,7 @@ class RaidService:
         destination = get_raid_destination(raid.destination)
         good_chance, bad_chance = self._build_outcome_chances(raid_state.modifier, raid_state.bad_outcome_modifier)
         roll = self._rng.random()
+        flavor_note = self._pick_raid_flavor(pig.name, raid_state.active_effects)
 
         if roll < good_chance:
             outcome = "good"
@@ -205,6 +210,9 @@ class RaidService:
             narrative = self._bad_narrative(destination.title, granted_effect_title)
             outcome_title = "Провальная вылазка"
 
+        if flavor_note is not None:
+            narrative = f"{narrative} {flavor_note}"
+
         broken_item = await self._wear_raid_item(raid_state.equipped_item, now=now)
         pig.status = PigStatus.IDLE
         pig.raid_until = None
@@ -251,8 +259,11 @@ class RaidService:
         group = await self._groups.get_by_id(pig.group_id)
         if group is None:
             return None
+        owner = await self._users.get_by_id(pig.owner_user_id)
         return RaidResolutionResult(
             telegram_group_id=group.telegram_group_id,
+            owner_telegram_user_id=owner.telegram_user_id if owner is not None else None,
+            owner_mention_label=self._owner_mention_label(owner),
             pig_name=pig.name,
             destination_title=destination.title,
             outcome_title=outcome_title,
@@ -262,7 +273,17 @@ class RaidService:
             loyalty_label=get_loyalty_label(pig.loyalty),
             found_item_title=found_item_title,
             granted_effect_title=granted_effect_title,
+            flavor_text=flavor_note,
         )
+
+    def _owner_mention_label(self, owner) -> str | None:
+        if owner is None:
+            return None
+        if owner.username:
+            return f"@{owner.username}"
+        parts = [owner.first_name, owner.last_name]
+        full_name = " ".join(part for part in parts if part)
+        return full_name or owner.first_name
 
     async def _get_locked_pig(self, *, telegram_group_id: int, telegram_user_id: int):
         group = await self._groups.get_by_telegram_id(telegram_group_id)
@@ -308,3 +329,10 @@ class RaidService:
         if get_item_definition(item.item_code).raid_modifier <= 0:
             return None
         return await self._items.wear_item(item, now=now)
+
+    def _pick_raid_flavor(self, pig_name: str, effects) -> str | None:
+        for effect in effects:
+            template = get_effect_definition(effect.effect_type).raid_flavor
+            if template:
+                return template.format(pig_name=pig_name)
+        return None

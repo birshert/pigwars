@@ -32,6 +32,7 @@ async def battle_handler(message: Message, app_context: AppContext) -> None:
             session,
             battle_cooldown=app_context.settings.battle_cooldown,
             battle_ready_ttl=app_context.settings.battle_ready_ttl,
+            rng=app_context.rng,
             lock_manager=app_context.lock_manager,
         )
         try:

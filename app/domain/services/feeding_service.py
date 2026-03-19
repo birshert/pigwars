@@ -17,6 +17,7 @@ from app.domain.feature_catalog import get_loyalty_label, get_mood_label
 from app.domain.rules.combat import quantize_weight, roll_feed_gain
 from app.domain.rules.cooldowns import get_remaining_cooldown
 from app.domain.rules.pig_state import apply_loyalty_change, apply_mood_change
+from app.domain.services.daily_feature_service import DailyFeatureService
 from app.domain.services.pig_modifier_resolver import PigModifierResolver
 from app.infra.locks import RedisLockManager
 from app.schemas.pig import FeedResult
@@ -40,6 +41,7 @@ class FeedingService:
         self._resolver = PigModifierResolver(session)
         self._feed_cooldown = feed_cooldown
         self._rng = rng
+        self._daily = DailyFeatureService(session, rng=rng)
         self._lock_manager = lock_manager
 
     async def feed_pig(
@@ -63,6 +65,7 @@ class FeedingService:
                 if remaining.total_seconds() > 0:
                     raise FeedCooldownError(remaining=remaining)
 
+                await self._daily.ensure_horoscope_for_pig(pig, now=now)
                 feed_state = await self._resolver.resolve_feed_state(pig, now=now)
                 gain = self._apply_feed_modifier(roll_feed_gain(self._rng), feed_state.modifier)
                 pig.weight_kg += gain

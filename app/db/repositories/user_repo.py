@@ -10,6 +10,10 @@ class UserRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
+    async def get_by_id(self, user_id: int) -> TelegramUser | None:
+        stmt = select(TelegramUser).where(TelegramUser.id == user_id)
+        return await self._session.scalar(stmt)
+
     async def get_by_telegram_id(self, telegram_user_id: int) -> TelegramUser | None:
         stmt = select(TelegramUser).where(TelegramUser.telegram_user_id == telegram_user_id)
         return await self._session.scalar(stmt)

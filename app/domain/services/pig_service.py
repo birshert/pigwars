@@ -14,8 +14,9 @@ from app.domain.exceptions import InvalidPigNameError, PigAlreadyExistsError, Pi
 from app.domain.models.pig import PigCooldowns, PigSnapshot
 from app.domain.rules.combat import STARTING_PIG_WEIGHT
 from app.domain.rules.cooldowns import get_remaining_cooldown
+from app.domain.services.daily_feature_service import DailyFeatureService
 from app.domain.services.pig_modifier_resolver import PigModifierResolver
-from app.schemas.pig import PigProfile
+from app.schemas.pig import PigProfile, RenamePigResult
 
 
 class PigService:
@@ -34,12 +35,13 @@ class PigService:
         self._users = UserRepository(session)
         self._pigs = PigRepository(session)
         self._events = PigEventRepository(session)
+        self._rng = rng or random.Random()
         self._resolver = PigModifierResolver(session)
+        self._daily = DailyFeatureService(session, rng=self._rng)
         self._feed_cooldown = feed_cooldown
         self._battle_cooldown = battle_cooldown
         self._sabotage_cooldown = sabotage_cooldown
         self._raid_cooldown = raid_cooldown
-        self._rng = rng or random.Random()
 
     async def create_pig(
         self,
@@ -99,14 +101,40 @@ class PigService:
         now: datetime,
     ) -> PigProfile:
         async with self._session.begin():
-            pig = await self._pigs.get_group_with_pig_for_owner(
+            pig = await self._get_locked_pig_for_owner(
                 telegram_group_id=telegram_group_id,
                 telegram_user_id=telegram_user_id,
             )
-            if pig is None:
-                raise PigNotFoundError
-
+            await self._daily.ensure_horoscope_for_pig(pig, now=now)
             return await self._to_profile(pig, now=now)
+
+    async def rename_pig(
+        self,
+        *,
+        telegram_group_id: int,
+        telegram_user_id: int,
+        new_name: str,
+        now: datetime,
+    ) -> RenamePigResult:
+        normalized_name = self._normalize_name(new_name)
+
+        async with self._session.begin():
+            pig = await self._get_locked_pig_for_owner(
+                telegram_group_id=telegram_group_id,
+                telegram_user_id=telegram_user_id,
+            )
+            old_name = pig.name
+            changed = normalized_name != old_name
+            if changed:
+                pig.name = normalized_name
+                await self._events.create(
+                    pig_id=pig.id,
+                    group_id=pig.group_id,
+                    event_type="pig_renamed",
+                    payload={"old_name": old_name, "new_name": normalized_name, "renamed_at": now.isoformat()},
+                )
+
+        return RenamePigResult(old_name=old_name, new_name=normalized_name, changed=changed)
 
     def _normalize_name(self, pig_name: str) -> str:
         normalized = " ".join(pig_name.split()).strip()
@@ -160,4 +188,17 @@ class PigService:
             raid_until=snapshot.raid_until,
             equipped_item=resolved.equipped_item,
             active_effects=resolved.active_effects,
+            world_event_title=resolved.world_event_title,
+            world_event_description=resolved.world_event_description,
         )
+
+    async def _get_locked_pig_for_owner(self, *, telegram_group_id: int, telegram_user_id: int):
+        group = await self._groups.get_by_telegram_id(telegram_group_id)
+        user = await self._users.get_by_telegram_id(telegram_user_id)
+        if group is None or user is None:
+            raise PigNotFoundError
+
+        pig = await self._pigs.get_by_group_owner_for_update(group_id=group.id, owner_user_id=user.id)
+        if pig is None:
+            raise PigNotFoundError
+        return pig

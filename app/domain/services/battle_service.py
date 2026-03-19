@@ -13,11 +13,12 @@ from app.db.repositories.group_repo import GroupRepository
 from app.db.repositories.pig_repo import PigRepository
 from app.db.repositories.user_repo import UserRepository
 from app.domain.exceptions import BattleCooldownError, ConcurrentActionError, PigBusyError, PigNotFoundError
-from app.domain.feature_catalog import get_item_definition, get_trait_definition
+from app.domain.feature_catalog import EFFECT_WET_NEWSPAPER_CURSE, get_effect_definition, get_item_definition, get_trait_definition
 from app.domain.models.pig import PigStatus
 from app.domain.rules.combat import pig_can_enter_battle, resolve_battle
 from app.domain.rules.cooldowns import ensure_utc, get_remaining_cooldown
 from app.domain.rules.pig_state import apply_loyalty_change, apply_mood_change
+from app.domain.services.daily_feature_service import DailyFeatureService
 from app.domain.services.item_service import ItemService
 from app.domain.services.pig_modifier_resolver import PigModifierResolver
 from app.infra.locks import RedisLockManager
@@ -32,6 +33,7 @@ class BattleQueueService:
         *,
         battle_cooldown,
         battle_ready_ttl,
+        rng: random.Random,
         lock_manager: RedisLockManager,
     ) -> None:
         self._session = session
@@ -41,6 +43,7 @@ class BattleQueueService:
         self._events = PigEventRepository(session)
         self._battle_cooldown = battle_cooldown
         self._battle_ready_ttl = battle_ready_ttl
+        self._daily = DailyFeatureService(session, rng=rng)
         self._lock_manager = lock_manager
 
     async def enter_battle_mode(
@@ -65,6 +68,7 @@ class BattleQueueService:
                 if remaining.total_seconds() > 0:
                     raise BattleCooldownError(remaining=remaining)
 
+                await self._daily.ensure_horoscope_for_pig(pig, now=now)
                 pig.status = PigStatus.BATTLE_READY
                 pig.last_battle_at = now
                 pig.battle_ready_until = now + self._battle_ready_ttl
@@ -182,6 +186,8 @@ class BattleService:
                 loser_loyalty_delta = apply_loyalty_change(loser, delta=-1)
                 for effect in winner_state.one_shot_effects + loser_state.one_shot_effects:
                     await self._effects.consume(effect, now=now)
+                await self._advance_wet_newspaper(winner_state.active_effects, now=now)
+                await self._advance_wet_newspaper(loser_state.active_effects, now=now)
                 winner_broken_item = await self._wear_combat_item(winner_state.equipped_item, now=now)
                 loser_broken_item = await self._wear_combat_item(loser_state.equipped_item, now=now)
 
@@ -257,6 +263,12 @@ class BattleService:
         finally:
             await lease.release()
 
+        flavor_lines = self._collect_flavor_lines(
+            (pig1.name, pig1_state.active_effects),
+            (pig2.name, pig2_state.active_effects),
+            channel="battle",
+        )
+
         return BattleMessagePayload(
             telegram_group_id=group.telegram_group_id,
             pig1_name=pig1.name,
@@ -271,6 +283,7 @@ class BattleService:
             loser_trait_title=get_trait_definition(loser.trait).title,
             winner_loot_title=loot.title if loot is not None else None,
             broken_item_title=winner_broken_item or loser_broken_item,
+            flavor_text="\n".join(flavor_lines) if flavor_lines else None,
         )
 
     def _is_ready(self, pig, now: datetime) -> bool:
@@ -288,3 +301,24 @@ class BattleService:
         if get_item_definition(item.item_code).combat_modifier <= 0:
             return None
         return await self._items.wear_item(item, now=now)
+
+    async def _advance_wet_newspaper(self, effects, *, now: datetime) -> None:
+        for effect in effects:
+            if effect.effect_type != EFFECT_WET_NEWSPAPER_CURSE:
+                continue
+            remaining = int((effect.payload or {}).get("remaining_battles", 3)) - 1
+            if remaining <= 0:
+                await self._effects.consume(effect, now=now)
+            else:
+                effect.payload = {**(effect.payload or {}), "remaining_battles": remaining}
+
+    def _collect_flavor_lines(self, *pig_effects: tuple[str, list], channel: str) -> list[str]:
+        flavor_lines: list[str] = []
+        for pig_name, effects in pig_effects:
+            for effect in effects:
+                definition = get_effect_definition(effect.effect_type)
+                template = definition.battle_flavor if channel == "battle" else definition.raid_flavor
+                if template:
+                    flavor_lines.append(template.format(pig_name=pig_name))
+                    break
+        return flavor_lines[:2]

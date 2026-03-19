@@ -19,3 +19,4 @@ class BattleMessagePayload:
     loser_trait_title: str
     winner_loot_title: str | None
     broken_item_title: str | None
+    flavor_text: str | None

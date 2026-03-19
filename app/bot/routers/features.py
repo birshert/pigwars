@@ -8,6 +8,8 @@ from aiogram.types import Message
 
 from app.bootstrap import AppContext
 from app.bot.formatting import (
+    format_daily_action_result,
+    format_daily_view,
     format_equip_result,
     format_inventory,
     format_raid_start,
@@ -28,9 +30,12 @@ from app.domain.exceptions import (
     SabotageBlockedError,
     SabotageCooldownError,
     SabotageTargetError,
+    WetNewspaperBlockedError,
+    WetNewspaperTargetError,
 )
 from app.domain.models.pig import RaidDestination
 from app.domain.rules.cooldowns import format_timedelta
+from app.domain.services.daily_feature_service import DailyFeatureService
 from app.domain.services.item_service import ItemService
 from app.domain.services.raid_service import RaidService
 from app.domain.services.sabotage_service import SabotageService
@@ -73,6 +78,53 @@ async def inventory_handler(message: Message, app_context: AppContext) -> None:
             return
 
     await message.answer(format_inventory(inventory))
+
+
+@router.message(Command("daily"))
+async def daily_handler(message: Message, command: CommandObject, app_context: AppContext) -> None:
+    if not is_group_chat(message):
+        await message.answer("Эта команда работает только в группе.")
+        return
+    if message.from_user is None:
+        return
+
+    mode = (command.args or "").strip().lower()
+    now = datetime.now(timezone.utc)
+    async with session_scope(app_context.session_factory) as session:
+        service = DailyFeatureService(session, rng=app_context.rng)
+        try:
+            if mode in {"", "status", "show"}:
+                view = await service.get_daily_view(
+                    telegram_group_id=message.chat.id,
+                    telegram_user_id=message.from_user.id,
+                    now=now,
+                )
+                await message.answer(format_daily_view(view))
+                return
+            if mode in {"trough", "корыто"}:
+                result = await service.use_trough(
+                    telegram_group_id=message.chat.id,
+                    telegram_user_id=message.from_user.id,
+                    now=now,
+                )
+                await message.answer(format_daily_action_result(result))
+                return
+            if mode in {"wheel", "колесо"}:
+                result = await service.spin_shame_wheel(
+                    telegram_group_id=message.chat.id,
+                    telegram_user_id=message.from_user.id,
+                    now=now,
+                )
+                await message.answer(format_daily_action_result(result))
+                return
+        except PigNotFoundError:
+            await message.answer("Сначала создай свинью через /create_pig <name>.")
+            return
+        except PigBusyError:
+            await message.answer("Свинья сейчас в бою или в вылазке. Дневные ритуалы подождут.")
+            return
+
+    await message.answer("Использование: /daily, /daily корыто или /daily колесо.")
 
 
 @router.message(Command("equip"))
@@ -131,6 +183,7 @@ async def use_item_handler(message: Message, command: CommandObject, app_context
                 telegram_group_id=message.chat.id,
                 telegram_user_id=message.from_user.id,
                 slot=int(command.args.strip()),
+                target_telegram_user_id=message.reply_to_message.from_user.id if message.reply_to_message and message.reply_to_message.from_user else None,
                 now=now,
             )
         except PigNotFoundError:
@@ -141,6 +194,12 @@ async def use_item_handler(message: Message, command: CommandObject, app_context
             return
         except ItemUseError:
             await message.answer("Этот предмет нельзя использовать как расходник.")
+            return
+        except WetNewspaperTargetError:
+            await message.answer("Мокрую газету нужно использовать reply-ом на сообщение владельца чужой свиньи в этой группе.")
+            return
+        except WetNewspaperBlockedError:
+            await message.answer("На эту цель сейчас нельзя повесить мокрую газету: она занята или уже под таким проклятием.")
             return
         except PigBusyError:
             await message.answer("Свинья сейчас занята и не может использовать предмет.")

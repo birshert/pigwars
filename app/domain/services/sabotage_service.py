@@ -22,6 +22,7 @@ from app.domain.exceptions import PigBusyError, PigNotFoundError, SabotageBlocke
 from app.domain.models.pig import PigStatus
 from app.domain.rules.cooldowns import get_remaining_cooldown
 from app.domain.rules.pig_state import apply_loyalty_change, apply_mood_change
+from app.domain.services.daily_feature_service import DailyFeatureService
 from app.domain.services.item_service import ItemService
 from app.domain.services.pig_modifier_resolver import PigModifierResolver
 from app.schemas.pig import SabotageResult
@@ -39,6 +40,7 @@ class SabotageService:
         self._events = PigEventRepository(session)
         self._resolver = PigModifierResolver(session)
         self._items = ItemService(session, rng=rng)
+        self._daily = DailyFeatureService(session, rng=rng)
 
     async def sabotage(
         self,
@@ -81,6 +83,7 @@ class SabotageService:
             if await self._effects.has_active_sabotage(pig_id=target.id, now=now):
                 raise SabotageBlockedError
 
+            await self._daily.ensure_horoscope_for_pig(attacker, now=now)
             sabotage_state = await self._resolver.resolve_sabotage_modifiers(attacker, target, now=now)
             attacker.last_sabotage_at = now
 

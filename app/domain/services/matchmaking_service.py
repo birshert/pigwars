@@ -83,7 +83,9 @@ class MatchmakingService:
         return battles
 
     def _should_match(self, pig1_ready_at: datetime, pig2_ready_at: datetime, *, now: datetime) -> bool:
-        probability = self._calculate_probability(min(pig1_ready_at, pig2_ready_at), now=now)
+        first_ready_at = ensure_utc(pig1_ready_at) or pig1_ready_at
+        second_ready_at = ensure_utc(pig2_ready_at) or pig2_ready_at
+        probability = self._calculate_probability(min(first_ready_at, second_ready_at), now=now)
         return self._rng.random() <= probability
 
     def _calculate_probability(self, ready_at: datetime, *, now: datetime) -> float:

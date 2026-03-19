@@ -49,6 +49,8 @@ class PigProfile:
     raid_until: datetime | None
     equipped_item: InventoryItemView | None
     active_effects: list[ActiveEffectView]
+    world_event_title: str | None
+    world_event_description: str | None
 
 
 @dataclass(slots=True)
@@ -88,6 +90,43 @@ class UseItemResult:
 
 
 @dataclass(slots=True)
+class RenamePigResult:
+    old_name: str
+    new_name: str
+    changed: bool
+
+
+@dataclass(slots=True)
+class DailyActionState:
+    action_name: str
+    available: bool
+    result_title: str | None
+    result_text: str | None
+    command_hint: str
+
+
+@dataclass(slots=True)
+class DailyView:
+    pig_name: str
+    horoscope_title: str
+    horoscope_text: str
+    trough: DailyActionState
+    wheel: DailyActionState
+    active_effects: list[ActiveEffectView]
+    world_event_title: str | None
+    world_event_description: str | None
+
+
+@dataclass(slots=True)
+class DailyActionResult:
+    pig_name: str
+    action_name: str
+    already_used: bool
+    result_title: str
+    result_text: str
+
+
+@dataclass(slots=True)
 class RaidStartResult:
     pig_name: str
     destination_title: str
@@ -98,6 +137,8 @@ class RaidStartResult:
 @dataclass(slots=True)
 class RaidResolutionResult:
     telegram_group_id: int
+    owner_telegram_user_id: int | None
+    owner_mention_label: str | None
     pig_name: str
     destination_title: str
     outcome_title: str
@@ -107,6 +148,7 @@ class RaidResolutionResult:
     loyalty_label: str
     found_item_title: str | None
     granted_effect_title: str | None
+    flavor_text: str | None
 
 
 @dataclass(slots=True)

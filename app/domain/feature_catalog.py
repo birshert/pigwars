@@ -18,6 +18,7 @@ ITEM_BOAR_HORSESHOES = "boar_horseshoes"
 ITEM_SUSPICIOUS_FEED = "suspicious_feed"
 ITEM_LUCKY_CHARM = "lucky_charm"
 ITEM_STINKY_OINTMENT = "stinky_ointment"
+ITEM_WET_NEWSPAPER = "wet_newspaper"
 
 EFFECT_FEED_SPOILED = "feed_spoiled"
 EFFECT_ARENA_NERVES = "arena_nerves"
@@ -27,12 +28,24 @@ EFFECT_SABOTAGE_GUARD = "sabotage_guard"
 EFFECT_RAID_BAD_LUCK_GUARD = "raid_bad_luck_guard"
 EFFECT_BATTLE_FOCUS = "battle_focus"
 EFFECT_GOOD_OMENS = "good_omens"
+EFFECT_HOROSCOPE_BOAR_LION = "horoscope_boar_lion"
+EFFECT_HOROSCOPE_SWINE_SCALES = "horoscope_swine_scales"
+EFFECT_HOROSCOPE_MUD_FISH = "horoscope_mud_fish"
+EFFECT_HOROSCOPE_BARN_ARCHER = "horoscope_barn_archer"
+EFFECT_WHEEL_PUDDLE = "wheel_puddle"
+EFFECT_WHEEL_HAY = "wheel_hay"
+EFFECT_WHEEL_STICKY = "wheel_sticky"
+EFFECT_WHEEL_FAIR = "wheel_fair"
+EFFECT_WHEEL_APPLAUSE = "wheel_applause"
+EFFECT_WHEEL_CABBAGE_OMEN = "wheel_cabbage_omen"
+EFFECT_WET_NEWSPAPER_CURSE = "wet_newspaper_curse"
 
 WORLD_EVENT_HEAT = "heat"
 WORLD_EVENT_LARD_FEST = "lard_fest"
 WORLD_EVENT_FEED_SHORTAGE = "feed_shortage"
 WORLD_EVENT_RAT_NIGHT = "rat_night"
 WORLD_EVENT_VET_RAID = "vet_raid"
+WORLD_EVENT_DIVINE_OINK = "divine_oink"
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,6 +93,8 @@ class EffectDefinition:
     mood_modifier: int = 0
     consume_on_action: str | None = None
     blocks_bad_raid: bool = False
+    battle_flavor: str | None = None
+    raid_flavor: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -106,6 +121,8 @@ class WorldEventDefinition:
     raid_bad_outcome_modifier: Decimal = ZERO
     raid_item_modifier: Decimal = ZERO
     destination_raid_modifiers: dict[RaidDestination, Decimal] | None = None
+    selection_weight: float = 1.0
+    duration_hours: int | None = None
 
 
 TRAITS: dict[PigTrait, TraitDefinition] = {
@@ -198,6 +215,12 @@ ITEMS: dict[str, ItemDefinition] = {
         title="Вонючая мазь",
         summary="На несколько часов снижает шанс чужих диверсий.",
     ),
+    ITEM_WET_NEWSPAPER: ItemDefinition(
+        code=ITEM_WET_NEWSPAPER,
+        item_type=PigItemType.CONSUMABLE,
+        title="Мокрая газета",
+        summary="Ответом на сообщение цели можно наслать на чужую свинью сырой газетный позор.",
+    ),
 }
 
 EFFECTS: dict[str, EffectDefinition] = {
@@ -253,6 +276,93 @@ EFFECTS: dict[str, EffectDefinition] = {
         summary="Следующий рейд проходит чуть удачнее.",
         raid_modifier=Decimal("0.08"),
         consume_on_action="raid",
+    ),
+    EFFECT_HOROSCOPE_BOAR_LION: EffectDefinition(
+        code=EFFECT_HOROSCOPE_BOAR_LION,
+        title="Гороскоп дня: Кабан-Лев",
+        summary="Сегодня свинья лезет в драку смелее обычного, но в тонких делах чересчур самоуверенна.",
+        combat_modifier=Decimal("0.08"),
+        sabotage_defense_modifier=Decimal("-0.05"),
+        battle_flavor="Сегодня у {pig_name} день Кабана-Льва: она влетает в арену как в амбар без двери.",
+    ),
+    EFFECT_HOROSCOPE_SWINE_SCALES: EffectDefinition(
+        code=EFFECT_HOROSCOPE_SWINE_SCALES,
+        title="Гороскоп дня: Свин-Весы",
+        summary="Чуть лучше тянет фарт в вылазках, но в драке слишком любит сомневаться у самого корыта.",
+        combat_modifier=Decimal("-0.04"),
+        raid_modifier=Decimal("0.08"),
+        raid_flavor="{pig_name} весь день под знаком Свина-Весов и подозрительно нюхает дорогу на удачу.",
+    ),
+    EFFECT_HOROSCOPE_MUD_FISH: EffectDefinition(
+        code=EFFECT_HOROSCOPE_MUD_FISH,
+        title="Гороскоп дня: Поросенок-Рыбы",
+        summary="Пятачок улавливает деревенские знаки лучше обычного и реже влезает в особенно тупые неприятности.",
+        raid_modifier=Decimal("0.04"),
+        sabotage_defense_modifier=Decimal("0.06"),
+        mood_modifier=4,
+        raid_flavor="{pig_name} сегодня как Поросенок-Рыбы: скользкая, чуткая и слишком мистическая для канавы.",
+    ),
+    EFFECT_HOROSCOPE_BARN_ARCHER: EffectDefinition(
+        code=EFFECT_HOROSCOPE_BARN_ARCHER,
+        title="Гороскоп дня: Кабан-Стрелец",
+        summary="Свинья охотнее устраивает пакости и дерзит судьбе, но чуть хуже держит строй в долгих делах.",
+        combat_modifier=Decimal("0.05"),
+        sabotage_attack_modifier=Decimal("0.08"),
+        raid_modifier=Decimal("-0.04"),
+        battle_flavor="{pig_name} идёт под знаком Кабана-Стрельца и выглядит так, будто уже придумала лишнюю пакость.",
+    ),
+    EFFECT_WHEEL_PUDDLE: EffectDefinition(
+        code=EFFECT_WHEEL_PUDDLE,
+        title="Позор дня: упала в лужу",
+        summary="Вид сырой, важность потеряна, боевой запал слегка размок.",
+        combat_modifier=Decimal("-0.05"),
+        battle_flavor="{pig_name} до сих пор хлюпает после позорного падения в лужу.",
+    ),
+    EFFECT_WHEEL_HAY: EffectDefinition(
+        code=EFFECT_WHEEL_HAY,
+        title="Позор дня: воняет сеном",
+        summary="От свиньи тянет сеновалом так уверенно, что даже удача отходит на шаг.",
+        raid_modifier=Decimal("-0.05"),
+        raid_flavor="{pig_name} несёт сеном на полдеревни, и это почему-то влияет на фарт.",
+    ),
+    EFFECT_WHEEL_STICKY: EffectDefinition(
+        code=EFFECT_WHEEL_STICKY,
+        title="Позор дня: подозрительно липкая",
+        summary="Никто не хочет подходить слишком близко, включая саму удачу.",
+        sabotage_defense_modifier=Decimal("-0.05"),
+        mood_modifier=-4,
+        battle_flavor="{pig_name} выглядит подозрительно липкой, и это заметно сбивает ритм арены.",
+    ),
+    EFFECT_WHEEL_FAIR: EffectDefinition(
+        code=EFFECT_WHEEL_FAIR,
+        title="Позор дня: слишком уверенно шла на ярмарку",
+        summary="Самоуверенность встретилась с канавой и теперь слегка мешает и в бою, и в дороге.",
+        combat_modifier=Decimal("-0.03"),
+        raid_modifier=Decimal("-0.03"),
+        raid_flavor="{pig_name} всё ещё держится так, будто не опозорилась по пути на ярмарку.",
+    ),
+    EFFECT_WHEEL_APPLAUSE: EffectDefinition(
+        code=EFFECT_WHEEL_APPLAUSE,
+        title="Колесо: ярмарочные аплодисменты",
+        summary="Редкий случай: деревня сочла свинью красавицей, и это бодрит до конца дня.",
+        combat_modifier=Decimal("0.05"),
+        battle_flavor="{pig_name} сегодня идёт под ярмарочные аплодисменты и сама в это почти поверила.",
+    ),
+    EFFECT_WHEEL_CABBAGE_OMEN: EffectDefinition(
+        code=EFFECT_WHEEL_CABBAGE_OMEN,
+        title="Колесо: капустная примета",
+        summary="Колесо выдало приятный знак, и свинья увереннее рыщет по вылазкам.",
+        raid_modifier=Decimal("0.05"),
+        raid_flavor="{pig_name} поймала капустную примету и теперь хрюкает на удачу.",
+    ),
+    EFFECT_WET_NEWSPAPER_CURSE: EffectDefinition(
+        code=EFFECT_WET_NEWSPAPER_CURSE,
+        title="Проклятие мокрой газеты",
+        summary="Пахнет сырой редакцией и стыдом, пока не переживёт три боя или не высохнет время.",
+        combat_modifier=Decimal("-0.05"),
+        raid_modifier=Decimal("-0.05"),
+        battle_flavor="{pig_name} явилась под проклятием мокрой газеты и тянет за собой запах сырой типографии.",
+        raid_flavor="{pig_name} несёт с собой влажный газетный стыд, и дорога от этого кажется ещё тупее.",
     ),
 }
 
@@ -328,6 +438,15 @@ WORLD_EVENTS: dict[str, WorldEventDefinition] = {
         sabotage_modifier=Decimal("-0.12"),
         raid_bad_outcome_modifier=Decimal("-0.10"),
     ),
+    WORLD_EVENT_DIVINE_OINK: WorldEventDefinition(
+        code=WORLD_EVENT_DIVINE_OINK,
+        title="Божественный хрюк",
+        description="Великая Свинья прорезала небо священным визгом: победы жиреют быстрее, а рейды тянут на особенно странный лут.",
+        battle_reward_modifier=Decimal("0.20"),
+        raid_item_modifier=Decimal("0.15"),
+        selection_weight=0.12,
+        duration_hours=2,
+    ),
 }
 
 
@@ -358,7 +477,8 @@ def get_world_event_definition(event_code: str) -> WorldEventDefinition:
 
 def pick_next_world_event(*, rng: random.Random, previous_code: str | None = None) -> WorldEventDefinition:
     available = [definition for definition in WORLD_EVENTS.values() if definition.code != previous_code]
-    return rng.choice(available)
+    weights = [definition.selection_weight for definition in available]
+    return rng.choices(available, weights=weights, k=1)[0]
 
 
 def clamp_mood_score(value: int) -> int:

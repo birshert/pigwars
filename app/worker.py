@@ -3,8 +3,10 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime, timezone
 
+from aiogram.enums import ParseMode
+
 from app.bootstrap import AppContext, build_app_context, close_app_context
-from app.bot.formatting import format_battle_result, format_raid_result
+from app.bot.formatting import format_battle_result, format_raid_result_html
 from app.db.base import session_scope
 from app.db.repositories.effect_repo import PigEffectRepository
 from app.db.repositories.group_repo import GroupRepository
@@ -56,7 +58,11 @@ async def run_worker_tick(app_context: AppContext) -> None:
     for battle in battles:
         await app_context.bot.send_message(battle.telegram_group_id, format_battle_result(battle))
     for raid in raid_results:
-        await app_context.bot.send_message(raid.telegram_group_id, format_raid_result(raid))
+        await app_context.bot.send_message(
+            raid.telegram_group_id,
+            format_raid_result_html(raid),
+            parse_mode=ParseMode.HTML,
+        )
     for telegram_group_id, text in world_announcements:
         await app_context.bot.send_message(telegram_group_id, text)
 

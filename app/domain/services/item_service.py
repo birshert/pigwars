@@ -15,15 +15,25 @@ from app.db.repositories.user_repo import UserRepository
 from app.domain.feature_catalog import (
     EFFECT_RAID_BAD_LUCK_GUARD,
     EFFECT_SABOTAGE_GUARD,
+    EFFECT_WET_NEWSPAPER_CURSE,
     ITEM_BOAR_HORSESHOES,
     ITEM_IRON_POT,
     ITEM_LUCKY_CHARM,
     ITEM_MUD_CLOAK,
     ITEM_STINKY_OINTMENT,
     ITEM_SUSPICIOUS_FEED,
+    ITEM_WET_NEWSPAPER,
     get_item_definition,
 )
-from app.domain.exceptions import ItemEquipError, ItemNotFoundError, ItemUseError, PigBusyError, PigNotFoundError
+from app.domain.exceptions import (
+    ItemEquipError,
+    ItemNotFoundError,
+    ItemUseError,
+    PigBusyError,
+    PigNotFoundError,
+    WetNewspaperBlockedError,
+    WetNewspaperTargetError,
+)
 from app.domain.models.pig import PigItemType, PigStatus
 from app.domain.rules.combat import quantize_weight
 from app.domain.rules.pig_state import apply_mood_change
@@ -31,11 +41,11 @@ from app.schemas.pig import EquipResult, InventoryItemView, InventoryView, UseIt
 
 
 RAID_ITEM_POOLS = {
-    "dump": [ITEM_MUD_CLOAK, ITEM_STINKY_OINTMENT, ITEM_LUCKY_CHARM],
+    "dump": [ITEM_MUD_CLOAK, ITEM_STINKY_OINTMENT, ITEM_LUCKY_CHARM, ITEM_WET_NEWSPAPER],
     "market": [ITEM_SUSPICIOUS_FEED, ITEM_LUCKY_CHARM, ITEM_IRON_POT],
     "woods": [ITEM_BOAR_HORSESHOES, ITEM_IRON_POT, ITEM_LUCKY_CHARM],
     "battle": [ITEM_IRON_POT, ITEM_SUSPICIOUS_FEED, ITEM_STINKY_OINTMENT],
-    "world": [ITEM_LUCKY_CHARM, ITEM_STINKY_OINTMENT, ITEM_SUSPICIOUS_FEED],
+    "world": [ITEM_LUCKY_CHARM, ITEM_STINKY_OINTMENT, ITEM_SUSPICIOUS_FEED, ITEM_WET_NEWSPAPER],
 }
 
 
@@ -97,6 +107,7 @@ class ItemService:
         telegram_group_id: int,
         telegram_user_id: int,
         slot: int,
+        target_telegram_user_id: int | None = None,
         now: datetime,
     ) -> UseItemResult:
         async with self._session.begin():
@@ -109,13 +120,18 @@ class ItemService:
             if item.item_type != PigItemType.CONSUMABLE:
                 raise ItemUseError
 
-            outcome_text, mood_delta = await self._apply_consumable(pig, item=item, now=now)
+            outcome_text, mood_delta = await self._apply_consumable(
+                pig,
+                item=item,
+                target_telegram_user_id=target_telegram_user_id,
+                now=now,
+            )
             await self._consume_item(item, now=now)
             await self._events.create(
                 pig_id=pig.id,
                 group_id=pig.group_id,
                 event_type="item_used",
-                payload={"item_code": item.item_code},
+                payload={"item_code": item.item_code, "target_telegram_user_id": target_telegram_user_id},
             )
             if mood_delta != 0:
                 await self._events.create(
@@ -188,7 +204,14 @@ class ItemService:
             return get_item_definition(item.item_code).title
         return None
 
-    async def _apply_consumable(self, pig, *, item, now: datetime) -> tuple[str, int]:
+    async def _apply_consumable(
+        self,
+        pig,
+        *,
+        item,
+        target_telegram_user_id: int | None,
+        now: datetime,
+    ) -> tuple[str, int]:
         if pig.status != PigStatus.IDLE:
             raise PigBusyError
 
@@ -229,6 +252,14 @@ class ItemService:
             )
             return "На несколько часов свинья стала отвратительно неудобной целью.", 0
 
+        if item.item_code == ITEM_WET_NEWSPAPER:
+            return await self._apply_wet_newspaper(
+                pig,
+                item=item,
+                target_telegram_user_id=target_telegram_user_id,
+                now=now,
+            )
+
         raise ItemUseError
 
     async def _consume_item(self, item, *, now: datetime) -> None:
@@ -264,6 +295,55 @@ class ItemService:
         if index >= len(items):
             raise ItemNotFoundError
         return items[index]
+
+    async def _apply_wet_newspaper(
+        self,
+        pig,
+        *,
+        item,
+        target_telegram_user_id: int | None,
+        now: datetime,
+    ) -> tuple[str, int]:
+        if target_telegram_user_id is None:
+            raise WetNewspaperTargetError
+
+        target_user = await self._users.get_by_telegram_id(target_telegram_user_id)
+        if target_user is None or target_user.id == pig.owner_user_id:
+            raise WetNewspaperTargetError
+
+        target = await self._pigs.get_by_group_owner_for_update(group_id=pig.group_id, owner_user_id=target_user.id)
+        if target is None:
+            raise WetNewspaperTargetError
+        if target.status in {PigStatus.ON_RAID, PigStatus.IN_BATTLE}:
+            raise WetNewspaperBlockedError
+
+        existing = await self._effects.get_first_matching_for_update(
+            pig_id=target.id,
+            effect_types=[EFFECT_WET_NEWSPAPER_CURSE],
+            now=now,
+        )
+        if existing is not None:
+            raise WetNewspaperBlockedError
+
+        await self._effects.create(
+            pig_id=target.id,
+            group_id=target.group_id,
+            effect_type=EFFECT_WET_NEWSPAPER_CURSE,
+            source_type="item",
+            source_id=str(item.id),
+            expires_at=now + timedelta(hours=12),
+            payload={"remaining_battles": 3, "attacker_pig_id": str(pig.id)},
+        )
+        await self._events.create(
+            pig_id=target.id,
+            group_id=target.group_id,
+            event_type="wet_newspaper_applied",
+            payload={"attacker_id": str(pig.id), "target_id": str(target.id)},
+        )
+        return (
+            f"Мокрая газета с хлюпом прилетела в {target.name}. До 12 часов или трёх боёв от неё будет пахнуть редакцией и стыдом.",
+            0,
+        )
 
     def _to_view(self, item) -> InventoryItemView:
         definition = get_item_definition(item.item_code)

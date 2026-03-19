@@ -10,6 +10,7 @@ from app.db.repositories.item_repo import PigItemRepository
 from app.db.repositories.world_event_repo import WorldEventRepository
 from app.domain.feature_catalog import (
     clamp_mood_score,
+    EFFECT_WET_NEWSPAPER_CURSE,
     get_effect_definition,
     get_item_definition,
     get_loyalty_label,
@@ -43,6 +44,8 @@ class ResolvedProfileState:
     loyalty_label: str
     equipped_item: InventoryItemView | None
     active_effects: list[ActiveEffectView]
+    world_event_title: str | None
+    world_event_description: str | None
 
 
 @dataclass(slots=True)
@@ -55,6 +58,7 @@ class ResolvedFeedState:
 class ResolvedCombatState:
     modifier: Decimal
     reward_modifier: Decimal
+    active_effects: list[PigEffect]
     one_shot_effects: list[PigEffect]
     equipped_item: PigItem | None
 
@@ -65,6 +69,7 @@ class ResolvedRaidState:
     reward_multiplier: Decimal
     item_modifier: Decimal
     bad_outcome_modifier: Decimal
+    active_effects: list[PigEffect]
     one_shot_effects: list[PigEffect]
     guard_effect: PigEffect | None
     equipped_item: PigItem | None
@@ -96,6 +101,7 @@ class PigModifierResolver:
 
     async def resolve_profile_state(self, pig, *, now: datetime) -> ResolvedProfileState:
         context = await self._build_context(pig, now=now)
+        world_event = await self._world_events.get_active(now=now)
         return ResolvedProfileState(
             trait_title=context.trait_title,
             trait_summary=context.trait_summary,
@@ -104,6 +110,8 @@ class PigModifierResolver:
             loyalty_label=context.loyalty_label,
             equipped_item=self._to_item_view(context.equipped_item),
             active_effects=[self._to_effect_view(effect) for effect in context.active_effects],
+            world_event_title=world_event.title if world_event is not None else None,
+            world_event_description=world_event.description if world_event is not None else None,
         )
 
     async def resolve_feed_state(self, pig, *, now: datetime) -> ResolvedFeedState:
@@ -141,6 +149,7 @@ class PigModifierResolver:
         return ResolvedCombatState(
             modifier=self._cap_modifier(modifier, minimum=COMBAT_MODIFIER_FLOOR, maximum=COMBAT_MODIFIER_CAP),
             reward_modifier=reward_modifier,
+            active_effects=context.active_effects,
             one_shot_effects=self._one_shot_effects(context.active_effects, action="battle"),
             equipped_item=context.equipped_item,
         )
@@ -182,6 +191,7 @@ class PigModifierResolver:
             reward_multiplier=destination_definition.weight_reward_modifier * trait.raid_reward_modifier,
             item_modifier=item_modifier,
             bad_outcome_modifier=bad_outcome_modifier,
+            active_effects=context.active_effects,
             one_shot_effects=one_shot_effects,
             guard_effect=guard_effect,
             equipped_item=context.equipped_item,
@@ -311,9 +321,13 @@ class PigModifierResolver:
 
     def _to_effect_view(self, effect: PigEffect) -> ActiveEffectView:
         definition = get_effect_definition(effect.effect_type)
+        summary = definition.summary
+        if effect.effect_type == EFFECT_WET_NEWSPAPER_CURSE:
+            remaining = int((effect.payload or {}).get("remaining_battles", 3))
+            summary = f"{summary} Осталось боёв: {remaining}."
         return ActiveEffectView(
             title=definition.title,
-            summary=definition.summary,
+            summary=summary,
             expires_at=effect.expires_at,
         )
 
