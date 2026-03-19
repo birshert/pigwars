@@ -1,0 +1,1 @@
+"""PigWars package."""
