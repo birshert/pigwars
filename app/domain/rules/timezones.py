@@ -28,6 +28,16 @@ def get_game_day(value: datetime) -> date:
     return to_msk(value).date()
 
 
+def get_previous_game_day(value: datetime) -> date:
+    return get_game_day(value) - timedelta(days=1)
+
+
+def get_game_day_bounds(day: date) -> tuple[datetime, datetime]:
+    start_local = datetime.combine(day, time.min, tzinfo=MSK_TIMEZONE)
+    end_local = start_local + timedelta(days=1)
+    return start_local.astimezone(timezone.utc), end_local.astimezone(timezone.utc)
+
+
 def end_of_game_day(value: datetime) -> datetime:
     localized = to_msk(value)
     next_midnight = datetime.combine(localized.date() + timedelta(days=1), time.min, tzinfo=MSK_TIMEZONE)

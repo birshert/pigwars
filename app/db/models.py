@@ -5,10 +5,11 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import BigInteger, Boolean, CheckConstraint, Date, DateTime, Enum, ForeignKey, Integer, JSON, Numeric, String, UniqueConstraint, func
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, Date, DateTime, Enum, ForeignKey, Integer, JSON, Numeric, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
+from app.domain.models.daily_digest import DailyDigestStatus
 from app.domain.models.pig import PigItemType, PigRaidStatus, PigStatus, PigTrait, RaidDestination
 
 
@@ -40,6 +41,40 @@ class TelegramGroup(Base):
 
     pigs: Mapped[list["Pig"]] = relationship(back_populates="group")
     battles: Mapped[list["Battle"]] = relationship(back_populates="group")
+
+
+class GroupDailyDigest(Base):
+    __tablename__ = "group_daily_digests"
+    __table_args__ = (
+        UniqueConstraint("group_id", "digest_day", name="uq_group_daily_digests_group_day"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    group_id: Mapped[int] = mapped_column(SQLBigInt, ForeignKey("telegram_groups.id"), index=True)
+    digest_day: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    status: Mapped[DailyDigestStatus] = mapped_column(
+        enum_value_column(DailyDigestStatus, length=16),
+        default=DailyDigestStatus.PENDING,
+        nullable=False,
+        index=True,
+    )
+    source_payload: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    summary_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    llm_model: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    telegram_message_id: Mapped[int | None] = mapped_column(SQLBigInt, nullable=True)
+    error_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
 
 
 class TelegramUser(Base):

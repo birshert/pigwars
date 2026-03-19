@@ -7,10 +7,12 @@ from aiogram.enums import ParseMode
 
 from app.bootstrap import AppContext, build_app_context, close_app_context
 from app.bot.formatting import format_battle_result, format_raid_result_html
+from app.daily_digest import list_due_digest_groups, send_digest_for_group
 from app.db.base import session_scope
 from app.db.repositories.effect_repo import PigEffectRepository
 from app.db.repositories.group_repo import GroupRepository
 from app.db.repositories.world_event_repo import WorldEventRepository
+from app.domain.rules.timezones import get_previous_game_day, to_msk
 from app.domain.services.matchmaking_service import MatchmakingService
 from app.domain.services.raid_service import RaidService
 from app.domain.services.world_event_service import WorldEventService
@@ -65,6 +67,28 @@ async def run_worker_tick(app_context: AppContext) -> None:
         )
     for telegram_group_id, text in world_announcements:
         await app_context.bot.send_message(telegram_group_id, text)
+    await _process_daily_digests(app_context, now=now)
+
+
+async def _process_daily_digests(app_context: AppContext, *, now: datetime) -> None:
+    if not app_context.settings.daily_digest_enabled:
+        return
+    if to_msk(now).hour < app_context.settings.daily_digest_hour_msk:
+        return
+
+    digest_day = get_previous_game_day(now)
+    due_groups = await list_due_digest_groups(
+        app_context,
+        digest_day=digest_day,
+        now=now,
+        limit=app_context.settings.daily_digest_max_groups_per_tick,
+    )
+
+    if not due_groups:
+        return
+
+    for group in due_groups:
+        await send_digest_for_group(app_context, group=group, digest_day=digest_day, now=now)
 
 
 async def main() -> None:

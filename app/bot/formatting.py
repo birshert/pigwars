@@ -6,6 +6,7 @@ from app.domain.models.pig import PigStatus
 from app.domain.rules.cooldowns import format_timedelta
 from app.domain.rules.timezones import format_datetime_msk, format_time_msk
 from app.schemas.battle import BattleMessagePayload
+from app.schemas.digest import DailyDigestCounts, DailyDigestFacts
 from app.schemas.leaderboard import LeaderboardEntry
 from app.schemas.pig import (
     BattleEntryResult,
@@ -171,6 +172,67 @@ def format_battle_result(payload: BattleMessagePayload) -> str:
     if payload.broken_item_title is not None:
         lines.append(f"Экипировка сломалась: {payload.broken_item_title}")
     return "\n".join(lines)
+
+
+def format_daily_digest_message(facts: DailyDigestFacts, narrative: str) -> str:
+    lines = [
+        f"🌅 Хрюкодайджест за {facts.digest_day.strftime('%d.%m')}",
+        "",
+        narrative,
+        "",
+        "Главное за вчера:",
+        f"• {format_daily_digest_counts(facts.counts)}",
+    ]
+    for highlight in facts.highlights:
+        lines.append(f"• {highlight.text}")
+
+    lines.extend(["", "Текущий топ по весу:"])
+    if facts.leaderboard:
+        for entry in facts.leaderboard:
+            lines.append(f"{entry.place}. {entry.pig_name} — {entry.weight_kg} кг")
+    else:
+        lines.append("Пока в группе не на что ранжировать сало.")
+    return "\n".join(lines)
+
+
+def format_daily_digest_counts(counts: DailyDigestCounts) -> str:
+    parts: list[str] = []
+    parts.append(f"{counts.battles} {_pluralize_ru(counts.battles, 'бой', 'боя', 'боёв')}")
+
+    if counts.raids_total > 0:
+        raid_part = f"{counts.raids_total} {_pluralize_ru(counts.raids_total, 'рейд', 'рейда', 'рейдов')}"
+        raid_suffix: list[str] = []
+        if counts.raids_good > 0:
+            raid_suffix.append(f"{counts.raids_good} удачных")
+        if counts.raids_bad > 0:
+            raid_suffix.append(f"{counts.raids_bad} провальных")
+        if raid_suffix:
+            raid_part += f" ({', '.join(raid_suffix)})"
+        parts.append(raid_part)
+
+    if counts.sabotage_total > 0:
+        parts.append(f"{counts.sabotage_total} {_pluralize_ru(counts.sabotage_total, 'диверсия', 'диверсии', 'диверсий')}")
+    if counts.items_found > 0:
+        parts.append(f"{counts.items_found} {_pluralize_ru(counts.items_found, 'найденный предмет', 'найденных предмета', 'найденных предметов')}")
+    if counts.new_pigs > 0:
+        parts.append(f"{counts.new_pigs} {_pluralize_ru(counts.new_pigs, 'новая свинья', 'новые свиньи', 'новых свиней')}")
+
+    if len(parts) == 1 and counts.feeds > 0:
+        parts.append(f"{counts.feeds} {_pluralize_ru(counts.feeds, 'кормление', 'кормления', 'кормлений')}")
+
+    return ", ".join(parts)
+
+
+def _pluralize_ru(value: int, singular: str, paucal: str, plural: str) -> str:
+    mod100 = value % 100
+    mod10 = value % 10
+    if 11 <= mod100 <= 14:
+        return plural
+    if mod10 == 1:
+        return singular
+    if 2 <= mod10 <= 4:
+        return paucal
+    return plural
 
 
 def format_inventory(view: InventoryView) -> str:
