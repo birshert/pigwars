@@ -71,11 +71,11 @@ class WorldEventService:
                 + ("проходят чаще" if definition.sabotage_modifier > 0 else "работают хуже")
             )
         if definition.raid_modifier != 0:
-            effects.append("экспедиции в среднем меняются по удаче")
+            effects.append("рейды в среднем меняются по удаче")
         if definition.raid_item_modifier != 0:
             effects.append("в рейдах чаще падают полезные предметы")
         if definition.raid_bad_outcome_modifier != 0:
-            effects.append("плохие исходы экспедиций случаются реже")
+            effects.append("плохие исходы рейдов случаются реже")
         if definition.destination_raid_modifiers:
             effects.append("часть направлений рейдов получила отдельный бонус")
         return effects

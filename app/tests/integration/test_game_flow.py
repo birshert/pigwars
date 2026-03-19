@@ -203,6 +203,7 @@ async def test_raid_resolution_returns_pig_to_idle(session, settings, rng) -> No
         now=now,
     )
     assert start.destination_title
+    assert start.resolve_at == now + timedelta(minutes=10)
 
     results = await raid_service.resolve_due_raids(now=now + settings.raid_duration + timedelta(minutes=1))
     assert len(results) == 1

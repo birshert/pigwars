@@ -179,7 +179,7 @@ async def raid_handler(message: Message, command: CommandObject, app_context: Ap
             await message.answer("Сначала создай свинью через /create_pig <name>.")
             return
         except PigBusyError:
-            await message.answer("Свинья уже занята и не может уйти в экспедицию.")
+            await message.answer("Свинья уже занята и не может уйти в вылазку.")
             return
         except RaidCooldownError as error:
             await message.answer(

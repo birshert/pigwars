@@ -141,7 +141,7 @@ TRAITS: dict[PigTrait, TraitDefinition] = {
     PigTrait.LUCKY: TraitDefinition(
         code=PigTrait.LUCKY,
         title="Везучая",
-        summary="Чаще вытягивает удачные экспедиции, но слабее раскрывает экипировку.",
+        summary="Чаще вытягивает удачные рейды, но слабее раскрывает экипировку.",
         raid_modifier=Decimal("0.12"),
         equipment_modifier=Decimal("0.65"),
     ),
@@ -218,7 +218,7 @@ EFFECTS: dict[str, EffectDefinition] = {
     EFFECT_ROUTE_CONFUSED: EffectDefinition(
         code=EFFECT_ROUTE_CONFUSED,
         title="Сбитый маршрут",
-        summary="Следующая экспедиция проходит через особенно тупой крюк.",
+        summary="Следующий рейд проходит через особенно тупой крюк.",
         raid_modifier=Decimal("-0.12"),
         consume_on_action="raid",
     ),
@@ -324,7 +324,7 @@ WORLD_EVENTS: dict[str, WorldEventDefinition] = {
     WORLD_EVENT_VET_RAID: WorldEventDefinition(
         code=WORLD_EVENT_VET_RAID,
         title="Ветеринарный рейд",
-        description="Грязные трюки в моде хуже работают, а экспедиции реже заканчиваются позором.",
+        description="Грязные трюки в моде хуже работают, а рейды реже заканчиваются позором.",
         sabotage_modifier=Decimal("-0.12"),
         raid_bad_outcome_modifier=Decimal("-0.10"),
     ),

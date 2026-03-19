@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     feed_cooldown_minutes: int = Field(60, alias="FEED_COOLDOWN_MINUTES")
     battle_cooldown_minutes: int = Field(120, alias="BATTLE_COOLDOWN_MINUTES")
     raid_cooldown_minutes: int = Field(480, alias="RAID_COOLDOWN_MINUTES")
-    raid_duration_minutes: int = Field(120, alias="RAID_DURATION_MINUTES")
+    raid_duration_minutes: int = Field(10, alias="RAID_DURATION_MINUTES")
     sabotage_cooldown_minutes: int = Field(480, alias="SABOTAGE_COOLDOWN_MINUTES")
     world_event_duration_hours: int = Field(48, alias="WORLD_EVENT_DURATION_HOURS")
     matchmaking_interval_seconds: int = Field(30, alias="MATCHMAKING_INTERVAL_SECONDS")

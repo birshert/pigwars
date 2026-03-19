@@ -23,7 +23,7 @@ STATUS_LABELS = {
     PigStatus.IDLE: "бездельничает",
     PigStatus.BATTLE_READY: "ищет драку",
     PigStatus.IN_BATTLE: "в бою",
-    PigStatus.ON_RAID: "в экспедиции",
+    PigStatus.ON_RAID: "в вылазке",
 }
 
 
@@ -39,7 +39,7 @@ def format_start_message(*, is_group: bool) -> str:
             "/inventory — инвентарь\n"
             "/equip <slot> — надеть предмет\n"
             "/use_item <slot> — использовать предмет\n"
-            "/raid <свалка|рынок|лес> — отправить в экспедицию\n"
+            "/raid <свалка|рынок|лес> — отправить в вылазку\n"
             "/sabotage — диверсия в ответ на сообщение цели\n"
             "/world — мировое событие\n"
             "/leaderboard — лидерборд группы\n"
@@ -62,7 +62,7 @@ def format_help_message() -> str:
         "/inventory — показать инвентарь\n"
         "/equip <slot> — экипировать предмет\n"
         "/use_item <slot> — использовать расходник\n"
-        "/raid <свалка|рынок|лес> — отправить свинью в экспедицию\n"
+        "/raid <свалка|рынок|лес> — отправить свинью в вылазку\n"
         "/sabotage — ответом на сообщение цели устроить диверсию\n"
         "/world — текущее мировое событие\n"
         "/leaderboard — топ свиней по весу\n"
@@ -77,7 +77,7 @@ def format_rules_message() -> str:
         "2. Кормить можно раз в 1 час.\n"
         "3. В боевой режим можно входить раз в 2 часа.\n"
         "4. Боевой режим живёт 15 минут.\n"
-        "5. Экспедиции идут 2 часа и дают лут с риском.\n"
+        "5. Рейды идут 10 минут и дают лут с риском.\n"
         "6. Диверсии живут недолго и не наносят permanent-урон.\n"
         "7. Победитель боя тяжелеет, проигравший худеет.\n"
         "8. Лидерборд считается по весу внутри группы."
@@ -100,12 +100,12 @@ def format_pig_profile(profile: PigProfile) -> str:
         f"До следующего кормления: {format_timedelta(profile.next_feed_in)}",
         f"До следующего входа в бой: {format_timedelta(profile.next_battle_in)}",
         f"До следующей диверсии: {format_timedelta(profile.next_sabotage_in)}",
-        f"До следующей экспедиции: {format_timedelta(profile.next_raid_in)}",
+        f"До следующего рейда: {format_timedelta(profile.next_raid_in)}",
     ]
     if profile.status == PigStatus.BATTLE_READY and profile.battle_ready_until is not None:
         lines.append(f"Ищет драку до: {format_time_msk(profile.battle_ready_until)}")
     if profile.status == PigStatus.ON_RAID and profile.raid_until is not None:
-        lines.append(f"Вернётся из рейда к: {format_time_msk(profile.raid_until)}")
+        lines.append(f"Вернётся из вылазки к: {format_time_msk(profile.raid_until)}")
     return "\n".join(lines)
 
 
@@ -186,7 +186,7 @@ def format_use_item_result(result: UseItemResult) -> str:
 
 def format_raid_start(result: RaidStartResult) -> str:
     return (
-        f"🗺️ {result.pig_name} ушла в экспедицию: {result.destination_title}.\n"
+        f"🗺️ {result.pig_name} ушла в вылазку: {result.destination_title}.\n"
         f"Возврат ожидается к {format_time_msk(result.resolve_at)}.\n"
         f"Новый рейд будет доступен через {format_timedelta(result.next_raid_in)}."
     )
