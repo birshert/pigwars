@@ -133,7 +133,7 @@ def calculate_weight_loss(loser_weight_kg: Decimal) -> Decimal:
 def pig_can_enter_battle(status: PigStatus, battle_ready_until: datetime | None, now: datetime) -> bool:
     normalized_ready_until = ensure_utc(battle_ready_until)
     normalized_now = ensure_utc(now) or now
-    if status in {PigStatus.IN_BATTLE, PigStatus.ON_RAID}:
+    if status in {PigStatus.IN_BATTLE, PigStatus.ON_RAID, PigStatus.QUARANTINED}:
         return False
     if status == PigStatus.BATTLE_READY and normalized_ready_until and normalized_ready_until > normalized_now:
         return False

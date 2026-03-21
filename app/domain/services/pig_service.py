@@ -159,6 +159,7 @@ class PigService:
             last_raid_at=pig.last_raid_at,
             battle_ready_until=pig.battle_ready_until,
             raid_until=pig.raid_until,
+            quarantine_until=pig.quarantine_until,
         )
         cooldowns = PigCooldowns(
             next_feed_in=get_remaining_cooldown(snapshot.last_feed_at, self._feed_cooldown, now),
@@ -186,6 +187,7 @@ class PigService:
             next_raid_in=cooldowns.next_raid_in,
             battle_ready_until=snapshot.battle_ready_until,
             raid_until=snapshot.raid_until,
+            quarantine_until=snapshot.quarantine_until,
             equipped_item=resolved.equipped_item,
             active_effects=resolved.active_effects,
             world_event_title=resolved.world_event_title,

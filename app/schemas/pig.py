@@ -47,6 +47,7 @@ class PigProfile:
     next_raid_in: timedelta
     battle_ready_until: datetime | None
     raid_until: datetime | None
+    quarantine_until: datetime | None
     equipped_item: InventoryItemView | None
     active_effects: list[ActiveEffectView]
     world_event_title: str | None

@@ -10,6 +10,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
 from app.domain.models.daily_digest import DailyDigestStatus
+from app.domain.models.disease import DiseaseRollStatus
 from app.domain.models.pig import PigItemType, PigRaidStatus, PigStatus, PigTrait, RaidDestination
 
 
@@ -129,6 +130,7 @@ class Pig(Base):
     last_raid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     battle_ready_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
     raid_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    quarantine_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
@@ -293,6 +295,32 @@ class WorldEvent(Base):
     ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
     modifiers: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     announced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+
+class GroupDiseaseRoll(Base):
+    __tablename__ = "group_disease_rolls"
+    __table_args__ = (
+        UniqueConstraint("group_id", "scheduled_for", name="uq_group_disease_rolls_group_slot"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    group_id: Mapped[int] = mapped_column(ForeignKey("telegram_groups.id"), index=True)
+    pig_id: Mapped[UUID | None] = mapped_column(ForeignKey("pigs.id"), nullable=True, index=True)
+    scheduled_for: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    status: Mapped[DiseaseRollStatus] = mapped_column(
+        enum_value_column(DiseaseRollStatus, length=16),
+        nullable=False,
+        index=True,
+    )
+    disease_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    narrative_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    llm_model: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    payload: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

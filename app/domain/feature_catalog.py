@@ -39,6 +39,10 @@ EFFECT_WHEEL_FAIR = "wheel_fair"
 EFFECT_WHEEL_APPLAUSE = "wheel_applause"
 EFFECT_WHEEL_CABBAGE_OMEN = "wheel_cabbage_omen"
 EFFECT_WET_NEWSPAPER_CURSE = "wet_newspaper_curse"
+EFFECT_DISEASE_FEED_COLD = "disease_feed_cold"
+EFFECT_DISEASE_MUD_FEVER = "disease_mud_fever"
+EFFECT_DISEASE_BARN_ITCH = "disease_barn_itch"
+EFFECT_DISEASE_QUARANTINE_SCREAM = "disease_quarantine_scream"
 
 WORLD_EVENT_HEAT = "heat"
 WORLD_EVENT_LARD_FEST = "lard_fest"
@@ -364,6 +368,42 @@ EFFECTS: dict[str, EffectDefinition] = {
         battle_flavor="{pig_name} явилась под проклятием мокрой газеты и тянет за собой запах сырой типографии.",
         raid_flavor="{pig_name} несёт с собой влажный газетный стыд, и дорога от этого кажется ещё тупее.",
     ),
+    EFFECT_DISEASE_FEED_COLD: EffectDefinition(
+        code=EFFECT_DISEASE_FEED_COLD,
+        title="Комбикормный насморк",
+        summary="Свинья сипит, фыркает и ест заметно хуже обычного.",
+        feed_modifier=Decimal("-0.18"),
+        combat_modifier=Decimal("-0.04"),
+        mood_modifier=-6,
+        battle_flavor="{pig_name} хлюпает пятачком так жалобно, будто арену ей прописал деревенский терапевт.",
+        raid_flavor="{pig_name} тащит в рейд комбикормный насморк и очень спорный запас бодрости.",
+    ),
+    EFFECT_DISEASE_MUD_FEVER: EffectDefinition(
+        code=EFFECT_DISEASE_MUD_FEVER,
+        title="Грязевая лихорадка",
+        summary="Лихорадит, сушит и мешает и драке, и вылазкам.",
+        combat_modifier=Decimal("-0.08"),
+        raid_modifier=Decimal("-0.10"),
+        mood_modifier=-10,
+        battle_flavor="{pig_name} вышла с грязевой лихорадкой и видом свиньи, которую лично прокляла каждая лужа.",
+        raid_flavor="{pig_name} ещё горит от грязевой лихорадки, поэтому дорога выглядит особенно злой.",
+    ),
+    EFFECT_DISEASE_BARN_ITCH: EffectDefinition(
+        code=EFFECT_DISEASE_BARN_ITCH,
+        title="Амбарная чесотка",
+        summary="Чешется, злится и теряет остатки спортивного достоинства.",
+        combat_modifier=Decimal("-0.10"),
+        raid_modifier=Decimal("-0.06"),
+        mood_modifier=-8,
+        battle_flavor="{pig_name} дёргается от амбарной чесотки так, будто сражается сразу и с ареной, и с собой.",
+        raid_flavor="{pig_name} несёт на себе амбарную чесотку и крайне неубедительную походку победителя.",
+    ),
+    EFFECT_DISEASE_QUARANTINE_SCREAM: EffectDefinition(
+        code=EFFECT_DISEASE_QUARANTINE_SCREAM,
+        title="Карантинный визгец",
+        summary="Случай настолько тяжёлый, что хлев временно запретил подвиги и вывел свинью из игры.",
+        mood_modifier=-14,
+    ),
 }
 
 RAID_DESTINATIONS: dict[RaidDestination, RaidDestinationDefinition] = {
@@ -393,6 +433,33 @@ RAID_DESTINATIONS: dict[RaidDestination, RaidDestinationDefinition] = {
         bad_outcome_modifier=Decimal("0.08"),
         item_chance_modifier=Decimal("0.04"),
         weight_reward_modifier=Decimal("1.00"),
+    ),
+    RaidDestination.MILL: RaidDestinationDefinition(
+        code=RaidDestination.MILL,
+        title="Старая мельница",
+        summary="Там полно зерна, муки и поводов вернуться белой от позора или довольства.",
+        good_outcome_modifier=Decimal("0.04"),
+        bad_outcome_modifier=Decimal("0.03"),
+        item_chance_modifier=Decimal("0.10"),
+        weight_reward_modifier=Decimal("1.18"),
+    ),
+    RaidDestination.PIER: RaidDestinationDefinition(
+        code=RaidDestination.PIER,
+        title="Речная пристань",
+        summary="Ящики, рыба и скользкие доски. Лут бывает жирный, но дорога любит подставлять копыто.",
+        good_outcome_modifier=Decimal("0.01"),
+        bad_outcome_modifier=Decimal("0.10"),
+        item_chance_modifier=Decimal("0.14"),
+        weight_reward_modifier=Decimal("0.98"),
+    ),
+    RaidDestination.MANOR: RaidDestinationDefinition(
+        code=RaidDestination.MANOR,
+        title="Барская усадьба",
+        summary="Чужой корм, тяжёлые ворота и большие шансы принести домой что-то неприлично ценное.",
+        good_outcome_modifier=Decimal("-0.02"),
+        bad_outcome_modifier=Decimal("0.12"),
+        item_chance_modifier=Decimal("0.16"),
+        weight_reward_modifier=Decimal("1.25"),
     ),
 }
 

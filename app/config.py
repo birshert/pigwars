@@ -30,6 +30,17 @@ class Settings(BaseSettings):
     matchmaking_interval_seconds: int = Field(30, alias="MATCHMAKING_INTERVAL_SECONDS")
     matchmaking_batch_size: int = Field(100, alias="MATCHMAKING_BATCH_SIZE")
     raid_resolution_batch_size: int = Field(100, alias="RAID_RESOLUTION_BATCH_SIZE")
+    disease_enabled: bool = Field(True, alias="DISEASE_ENABLED")
+    disease_interval_hours: int = Field(5, alias="DISEASE_INTERVAL_HOURS")
+    disease_day_start_hour_msk: int = Field(9, alias="DISEASE_DAY_START_HOUR_MSK")
+    disease_day_end_hour_msk: int = Field(23, alias="DISEASE_DAY_END_HOUR_MSK")
+    disease_night_hour_msk: int = Field(2, alias="DISEASE_NIGHT_HOUR_MSK")
+    disease_day_chance: float = Field(0.75, alias="DISEASE_DAY_CHANCE")
+    disease_night_chance: float = Field(0.20, alias="DISEASE_NIGHT_CHANCE")
+    disease_repeat_cooldown_hours: int = Field(18, alias="DISEASE_REPEAT_COOLDOWN_HOURS")
+    disease_llm_timeout_seconds: float = Field(8.0, alias="DISEASE_LLM_TIMEOUT_SECONDS")
+    disease_resolution_batch_size: int = Field(100, alias="DISEASE_RESOLUTION_BATCH_SIZE")
+    disease_model: str | None = Field("gpt-5-nano", alias="DISEASE_MODEL")
     daily_digest_enabled: bool = Field(False, alias="DAILY_DIGEST_ENABLED")
     daily_digest_hour_msk: int = Field(9, alias="DAILY_DIGEST_HOUR_MSK")
     daily_digest_llm_timeout_seconds: float = Field(8.0, alias="DAILY_DIGEST_LLM_TIMEOUT_SECONDS")
@@ -110,6 +121,10 @@ class Settings(BaseSettings):
     @property
     def sabotage_cooldown(self) -> timedelta:
         return timedelta(minutes=self.sabotage_cooldown_minutes)
+
+    @property
+    def disease_repeat_cooldown(self) -> timedelta:
+        return timedelta(hours=self.disease_repeat_cooldown_hours)
 
     @property
     def world_event_duration(self) -> timedelta:

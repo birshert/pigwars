@@ -26,6 +26,7 @@ async def main() -> None:
     await app_context.bot.set_my_commands(
         [
             BotCommand(command="admin", description="Open admin dashboard"),
+            BotCommand(command="admin_disease", description="Force a disease event"),
             BotCommand(command="dashboard", description="Open your pig dashboard"),
             BotCommand(command="create_pig", description="Create your pig"),
             BotCommand(command="rename_pig", description="Rename your pig"),

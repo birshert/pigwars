@@ -5,15 +5,18 @@ from datetime import datetime, timezone
 
 from aiogram import Router
 from aiogram.filters import Command, CommandObject
+from aiogram.enums import ParseMode
 from aiogram.types import Message
 
 from app.bootstrap import AppContext
+from app.bot.formatting import format_disease_announcement_html
 from app.bot.keyboards.admin import build_admin_dashboard_keyboard
 from app.bot.utils import is_group_chat
 from app.daily_digest import list_due_digest_groups, send_digest_for_group
 from app.db.base import session_scope
 from app.db.repositories.group_repo import GroupRepository
 from app.domain.rules.timezones import get_game_day
+from app.domain.services.disease_service import DiseaseService
 from app.infra.ngrok import resolve_admin_mini_app_url
 
 
@@ -125,6 +128,61 @@ async def admin_digest_handler(
             lines.append(f"• {result.group_title}{suffix}")
 
     await message.answer("\n".join(lines))
+
+
+@router.message(Command("admin_disease"))
+async def admin_disease_handler(
+    message: Message,
+    command: CommandObject,
+    app_context: AppContext,
+) -> None:
+    if is_group_chat(message):
+        await message.answer("Эта команда работает только в личке.")
+        return
+    if message.chat.type != "private":
+        await message.answer("Эта команда работает только в личке.")
+        return
+    if message.from_user is None or not _is_admin_user(app_context, message.from_user.id):
+        await message.answer("Команда недоступна.")
+        return
+
+    target_group = None
+    if command.args:
+        target_group = await _resolve_group(app_context, command.args.strip())
+        if target_group is None:
+            await message.answer(
+                "Использование: /admin_disease <telegram_group_id> или просто /admin_disease для случайной подходящей группы."
+            )
+            return
+
+    now = datetime.now(timezone.utc)
+    async with session_scope(app_context.session_factory) as session:
+        service = DiseaseService(session, settings=app_context.settings, rng=app_context.rng)
+        result = await service.trigger_manual_disease(
+            now=now,
+            group_id=target_group.id if target_group is not None else None,
+        )
+
+    if result is None:
+        if target_group is not None:
+            await message.answer(
+                f"Не получилось запустить болезнь в группе {target_group.title} ({target_group.telegram_group_id}): "
+                "нет доступной свиньи для заражения."
+            )
+            return
+        await message.answer("Не получилось запустить болезнь: сейчас ни в одной группе нет доступной свиньи.")
+        return
+
+    await app_context.bot.send_message(
+        result.telegram_group_id,
+        format_disease_announcement_html(result),
+        parse_mode=ParseMode.HTML,
+    )
+    await message.answer(
+        "Болезнь запущена вручную.\n"
+        f"Группа: {result.group_title or 'без названия'} ({result.telegram_group_id})\n\n"
+        f"Текст, отправленный в чат:\n{result.text}"
+    )
 
 
 async def _resolve_group(app_context: AppContext, raw_group_id: str):

@@ -53,6 +53,13 @@ DESTINATION_ALIASES = {
     "лес": RaidDestination.WOODS,
     "лесополоса": RaidDestination.WOODS,
     "woods": RaidDestination.WOODS,
+    "мельница": RaidDestination.MILL,
+    "mill": RaidDestination.MILL,
+    "пристань": RaidDestination.PIER,
+    "pier": RaidDestination.PIER,
+    "усадьба": RaidDestination.MANOR,
+    "estate": RaidDestination.MANOR,
+    "manor": RaidDestination.MANOR,
 }
 
 
@@ -121,7 +128,7 @@ async def daily_handler(message: Message, command: CommandObject, app_context: A
             await message.answer("Сначала создай свинью через /create_pig <name>.")
             return
         except PigBusyError:
-            await message.answer("Свинья сейчас в бою или в вылазке. Дневные ритуалы подождут.")
+            await message.answer("Свинья сейчас в бою, вылазке или карантине. Дневные ритуалы подождут.")
             return
 
     await message.answer("Использование: /daily, /daily корыто или /daily колесо.")
@@ -158,7 +165,7 @@ async def equip_handler(message: Message, command: CommandObject, app_context: A
             await message.answer("Этот предмет нельзя надеть.")
             return
         except PigBusyError:
-            await message.answer("Свинья занята и не может сейчас переэкипироваться.")
+            await message.answer("Свинья занята или сидит в карантине и не может сейчас переэкипироваться.")
             return
 
     await message.answer(format_equip_result(result))
@@ -202,7 +209,7 @@ async def use_item_handler(message: Message, command: CommandObject, app_context
             await message.answer("На эту цель сейчас нельзя повесить мокрую газету: она занята или уже под таким проклятием.")
             return
         except PigBusyError:
-            await message.answer("Свинья сейчас занята и не может использовать предмет.")
+            await message.answer("Свинья сейчас занята или сидит в карантине и не может использовать предмет.")
             return
 
     await message.answer(format_use_item_result(result))
@@ -216,12 +223,12 @@ async def raid_handler(message: Message, command: CommandObject, app_context: Ap
     if message.from_user is None:
         return
     if not command.args:
-        await message.answer("Использование: /raid <свалка|рынок|лес>.")
+        await message.answer("Использование: /raid <свалка|рынок|лес|мельница|пристань|усадьба>.")
         return
 
     destination = DESTINATION_ALIASES.get(command.args.strip().lower())
     if destination is None:
-        await message.answer("Неизвестное направление. Доступно: свалка, рынок, лес.")
+        await message.answer("Неизвестное направление. Доступно: свалка, рынок, лес, мельница, пристань, усадьба.")
         return
 
     now = datetime.now(timezone.utc)
@@ -238,7 +245,7 @@ async def raid_handler(message: Message, command: CommandObject, app_context: Ap
             await message.answer("Сначала создай свинью через /create_pig <name>.")
             return
         except PigBusyError:
-            await message.answer("Свинья уже занята и не может уйти в вылазку.")
+            await message.answer("Свинья уже занята или сидит в карантине и не может уйти в вылазку.")
             return
         except RaidCooldownError as error:
             await message.answer(
@@ -281,10 +288,10 @@ async def sabotage_handler(message: Message, app_context: AppContext) -> None:
             await message.answer("Саботировать собственную свинью нельзя.")
             return
         except PigBusyError:
-            await message.answer("Твоя свинья сейчас не может устраивать диверсии.")
+            await message.answer("Твоя свинья сейчас не может устраивать диверсии: она занята или в карантине.")
             return
         except SabotageBlockedError:
-            await message.answer("Цель сейчас недоступна для диверсии или уже под активным эффектом.")
+            await message.answer("Цель сейчас недоступна для диверсии: занята, в карантине или уже под активным эффектом.")
             return
         except SabotageCooldownError as error:
             await message.answer(

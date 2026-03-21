@@ -12,6 +12,7 @@ class PigStatus(StrEnum):
     BATTLE_READY = "battle_ready"
     IN_BATTLE = "in_battle"
     ON_RAID = "on_raid"
+    QUARANTINED = "quarantined"
 
 
 class PigTrait(StrEnum):
@@ -54,6 +55,9 @@ class RaidDestination(StrEnum):
     DUMP = "dump"
     MARKET = "market"
     WOODS = "woods"
+    MILL = "mill"
+    PIER = "pier"
+    MANOR = "manor"
 
 
 class PigRaidStatus(StrEnum):
@@ -79,6 +83,7 @@ class PigSnapshot:
     last_raid_at: datetime | None
     battle_ready_until: datetime | None
     raid_until: datetime | None
+    quarantine_until: datetime | None
 
 
 @dataclass(slots=True)

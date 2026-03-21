@@ -174,7 +174,7 @@ function renderPigs(items) {
 
             <section class="info-block">
               <h3>Состояние</h3>
-              <p>${profile.battle_ready_until ? `На арене до ${escapeHtml(formatDateTime(profile.battle_ready_until))}.` : ""}${profile.raid_until ? ` В рейде до ${escapeHtml(formatDateTime(profile.raid_until))}.` : ""}${!profile.battle_ready_until && !profile.raid_until ? "Спокойный режим без срочных таймеров." : ""}</p>
+              <p>${profile.quarantine_until ? `В карантине до ${escapeHtml(formatDateTime(profile.quarantine_until))}.` : ""}${profile.battle_ready_until ? ` На арене до ${escapeHtml(formatDateTime(profile.battle_ready_until))}.` : ""}${profile.raid_until ? ` В рейде до ${escapeHtml(formatDateTime(profile.raid_until))}.` : ""}${!profile.quarantine_until && !profile.battle_ready_until && !profile.raid_until ? "Спокойный режим без срочных таймеров." : ""}</p>
             </section>
           </div>
         </article>

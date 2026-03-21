@@ -6,13 +6,14 @@ from datetime import datetime, timezone
 from aiogram.enums import ParseMode
 
 from app.bootstrap import AppContext, build_app_context, close_app_context
-from app.bot.formatting import format_battle_result, format_raid_result_html
+from app.bot.formatting import format_battle_result, format_disease_announcement_html, format_raid_result_html
 from app.daily_digest import list_due_digest_groups, send_digest_for_group
 from app.db.base import session_scope
 from app.db.repositories.effect_repo import PigEffectRepository
 from app.db.repositories.group_repo import GroupRepository
 from app.db.repositories.world_event_repo import WorldEventRepository
 from app.domain.rules.timezones import get_previous_game_day, to_msk
+from app.domain.services.disease_service import DiseaseService
 from app.domain.services.matchmaking_service import MatchmakingService
 from app.domain.services.raid_service import RaidService
 from app.domain.services.world_event_service import WorldEventService
@@ -24,6 +25,9 @@ async def run_worker_tick(app_context: AppContext) -> None:
     now = datetime.now(timezone.utc)
 
     async with session_scope(app_context.session_factory) as session:
+        disease_service = DiseaseService(session, settings=app_context.settings, rng=app_context.rng)
+        expired_quarantines = await disease_service.expire_quarantines(now=now)
+
         world_service = WorldEventService(session, settings=app_context.settings, rng=app_context.rng)
         async with session.begin():
             await world_service.ensure_active_event(now=now)
@@ -51,9 +55,12 @@ async def run_worker_tick(app_context: AppContext) -> None:
         battles = await service.process_matchmaking_cycle(now=now)
         async with session.begin():
             purged_effects = await PigEffectRepository(session).purge_inactive(now=now)
+        disease_announcements = await disease_service.process_current_slot(now=now)
 
     if expired:
         logger.info("Expired %s stale battle-ready pigs", expired)
+    if expired_quarantines:
+        logger.info("Released %s pigs from quarantine", expired_quarantines)
     if purged_effects:
         logger.info("Purged %s inactive temporary effects", purged_effects)
 
@@ -67,6 +74,12 @@ async def run_worker_tick(app_context: AppContext) -> None:
         )
     for telegram_group_id, text in world_announcements:
         await app_context.bot.send_message(telegram_group_id, text)
+    for announcement in disease_announcements:
+        await app_context.bot.send_message(
+            announcement.telegram_group_id,
+            format_disease_announcement_html(announcement),
+            parse_mode=ParseMode.HTML,
+        )
     await _process_daily_digests(app_context, now=now)
 
 

@@ -80,6 +80,7 @@ class PlayerDashboardService:
             next_raid_in=get_remaining_cooldown(pig.last_raid_at, self._raid_cooldown, now),
             battle_ready_until=pig.battle_ready_until,
             raid_until=pig.raid_until,
+            quarantine_until=pig.quarantine_until,
             equipped_item=resolved.equipped_item,
             active_effects=resolved.active_effects,
             world_event_title=resolved.world_event_title,
@@ -116,6 +117,7 @@ class PlayerDashboardService:
                 "next_raid_in_seconds": int(profile.next_raid_in.total_seconds()),
                 "battle_ready_until": profile.battle_ready_until.isoformat() if profile.battle_ready_until else None,
                 "raid_until": profile.raid_until.isoformat() if profile.raid_until else None,
+                "quarantine_until": profile.quarantine_until.isoformat() if profile.quarantine_until else None,
                 "equipped_item": (
                     {
                         "title": profile.equipped_item.title,

@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import and_, delete, or_, select
+from sqlalchemy import and_, delete, distinct, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import PigEffect
@@ -58,6 +58,24 @@ class PigEffectRepository:
             select(PigEffect)
             .where(PigEffect.pig_id.in_(pig_ids), self._active_predicate(now=now))
             .order_by(PigEffect.created_at.asc(), PigEffect.id.asc())
+        )
+        result = await self._session.scalars(stmt)
+        return list(result.all())
+
+    async def list_active_pig_ids_by_effect_types(
+        self,
+        *,
+        group_id: int,
+        effect_types: list[str],
+        now: datetime,
+    ) -> list[UUID]:
+        stmt = (
+            select(distinct(PigEffect.pig_id))
+            .where(
+                PigEffect.group_id == group_id,
+                PigEffect.effect_type.in_(effect_types),
+                self._active_predicate(now=now),
+            )
         )
         result = await self._session.scalars(stmt)
         return list(result.all())

@@ -176,7 +176,7 @@ async def feed_handler(message: Message, app_context: AppContext) -> None:
             )
             return
         except PigBusyError:
-            await message.answer("Нельзя кормить свинью, пока она занята боем или вылазкой.")
+            await message.answer("Нельзя кормить свинью, пока она занята или сидит в карантине.")
             return
         except ConcurrentActionError:
             await message.answer("Команда уже обрабатывается. Попробуй ещё раз через пару секунд.")

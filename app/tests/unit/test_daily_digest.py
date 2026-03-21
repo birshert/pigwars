@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
@@ -17,6 +18,7 @@ from app.domain.services.daily_digest_facts_service import DailyDigestFactsServi
 from app.domain.services.matchmaking_service import MatchmakingService
 from app.domain.services.pig_service import PigService
 from app.domain.services.feeding_service import FeedingService
+from app.schemas.disease import DiseaseAnnouncement
 from app.worker import run_worker_tick
 from app import worker as worker_module
 
@@ -234,4 +236,45 @@ async def test_admin_digest_handler_runs_from_private_chat(monkeypatch) -> None:
 
     assert len(message.answers) == 1
     assert "Отправлено: 1" in message.answers[0]
+    assert "Manual Group" in message.answers[0]
+
+
+@pytest.mark.asyncio
+async def test_admin_disease_handler_runs_from_private_chat(monkeypatch) -> None:
+    class FakeDiseaseService:
+        def __init__(self, session, *, settings, rng) -> None:
+            return None
+
+        async def trigger_manual_disease(self, *, now, group_id=None):
+            return DiseaseAnnouncement(
+                roll_id=1,
+                telegram_group_id=-10123,
+                text="🤒 Тестовая свинья словила тестовую болезнь.",
+                group_title="Manual Group",
+            )
+
+    @asynccontextmanager
+    async def fake_session_scope(session_factory):
+        yield SimpleNamespace()
+
+    monkeypatch.setattr(admin_router_module, "DiseaseService", FakeDiseaseService)
+    monkeypatch.setattr(admin_router_module, "session_scope", fake_session_scope)
+
+    message = FakePrivateMessage(user_id=241301944)
+    command = SimpleNamespace(args=None)
+    fake_bot = FakeBot()
+    app_context = SimpleNamespace(
+        settings=SimpleNamespace(is_admin_telegram_user=lambda telegram_user_id: telegram_user_id == 241301944),
+        bot=fake_bot,
+        rng=None,
+        session_factory=object(),
+    )
+
+    await admin_router_module.admin_disease_handler(message, command, app_context)
+
+    assert len(fake_bot.messages) == 1
+    assert fake_bot.messages[0][0] == -10123
+    assert "тестовую болезнь" in fake_bot.messages[0][1]
+    assert len(message.answers) == 1
+    assert "Болезнь запущена вручную." in message.answers[0]
     assert "Manual Group" in message.answers[0]

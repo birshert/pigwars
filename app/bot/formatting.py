@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from decimal import Decimal
 from html import escape
 
 from app.domain.models.pig import PigStatus
@@ -7,6 +8,7 @@ from app.domain.rules.cooldowns import format_timedelta
 from app.domain.rules.timezones import format_datetime_msk, format_time_msk
 from app.schemas.battle import BattleMessagePayload
 from app.schemas.digest import DailyDigestCounts, DailyDigestFacts
+from app.schemas.disease import DiseaseAnnouncement
 from app.schemas.leaderboard import LeaderboardEntry
 from app.schemas.pig import (
     BattleEntryResult,
@@ -30,6 +32,7 @@ STATUS_LABELS = {
     PigStatus.BATTLE_READY: "ищет драку",
     PigStatus.IN_BATTLE: "в бою",
     PigStatus.ON_RAID: "в вылазке",
+    PigStatus.QUARANTINED: "в карантине",
 }
 
 
@@ -47,7 +50,7 @@ def format_start_message(*, is_group: bool) -> str:
             "/inventory — инвентарь\n"
             "/equip <slot> — надеть предмет\n"
             "/use_item <slot> — использовать предмет\n"
-            "/raid <свалка|рынок|лес> — отправить в вылазку\n"
+            "/raid <свалка|рынок|лес|мельница|пристань|усадьба> — отправить в вылазку\n"
             "/sabotage — диверсия в ответ на сообщение цели\n"
             "/world — мировое событие\n"
             "/leaderboard — лидерборд группы\n"
@@ -77,11 +80,13 @@ def format_help_message() -> str:
         "/inventory — показать инвентарь\n"
         "/equip <slot> — экипировать предмет\n"
         "/use_item <slot> — использовать расходник; мокрую газету кидай reply-целью\n"
-        "/raid <свалка|рынок|лес> — отправить свинью в вылазку\n"
+        "/raid <свалка|рынок|лес|мельница|пристань|усадьба> — отправить свинью в вылазку\n"
         "/sabotage — ответом на сообщение цели устроить диверсию\n"
         "/world — текущее мировое событие\n"
         "/leaderboard — топ свиней по весу\n"
-        "/rules — короткие правила"
+        "/rules — короткие правила\n\n"
+        "Фоновые события:\n"
+        "болезни могут прилетать автоматически несколько раз в день, в основном днём"
     )
 
 
@@ -95,7 +100,8 @@ def format_rules_message() -> str:
         "5. Рейды идут 10 минут и дают лут с риском.\n"
         "6. Диверсии живут недолго и не наносят permanent-урон.\n"
         "7. Победитель боя тяжелеет, проигравший худеет.\n"
-        "8. Лидерборд считается по весу внутри группы."
+        "8. Болезни могут прилетать автоматически и иногда сажают свинью в карантин.\n"
+        "9. Лидерборд считается по весу внутри группы."
     )
 
 
@@ -124,18 +130,23 @@ def format_pig_profile(profile: PigProfile) -> str:
         lines.append(f"Ищет драку до: {format_time_msk(profile.battle_ready_until)}")
     if profile.status == PigStatus.ON_RAID and profile.raid_until is not None:
         lines.append(f"Вернётся из вылазки к: {format_time_msk(profile.raid_until)}")
+    if profile.status == PigStatus.QUARANTINED and profile.quarantine_until is not None:
+        lines.append(f"Карантин до: {format_time_msk(profile.quarantine_until)}")
     return "\n".join(lines)
 
 
 def format_feed_result(result: FeedResult) -> str:
-    return (
-        f"🥕 {result.pig_name} сожрал всё, что нашёл.\n"
-        f"+{result.weight_gain} кг\n\n"
-        f"Текущий вес: {result.current_weight} кг\n"
-        f"Настроение: {result.mood_label}\n"
-        f"Лояльность: {result.loyalty_label}\n"
-        f"Следующее кормление будет доступно через {format_timedelta(result.next_feed_in)}."
-    )
+    lines = [
+        f"🥕 {result.pig_name} сожрал всё, что нашёл.",
+        _build_feed_flavor(result),
+        f"+{result.weight_gain} кг",
+        "",
+        f"Текущий вес: {result.current_weight} кг",
+        f"Настроение: {result.mood_label}",
+        f"Лояльность: {result.loyalty_label}",
+        f"Следующее кормление будет доступно через {format_timedelta(result.next_feed_in)}.",
+    ]
+    return "\n".join(lines)
 
 
 def format_battle_entry(result: BattleEntryResult) -> str:
@@ -161,6 +172,7 @@ def format_leaderboard(entries: list[LeaderboardEntry]) -> str:
 def format_battle_result(payload: BattleMessagePayload) -> str:
     lines = [
         "🐷💥 Бой на арене!",
+        _build_battle_intro(payload),
         "",
         f"{payload.pig1_name} ({payload.pig1_weight} кг) vs {payload.pig2_name} ({payload.pig2_weight} кг)",
         "",
@@ -169,6 +181,7 @@ def format_battle_result(payload: BattleMessagePayload) -> str:
         "",
         f"{payload.winner_name} получает +{payload.winner_gain} кг",
         f"{payload.loser_name} теряет -{payload.loser_loss} кг",
+        _build_battle_finish(payload),
     ]
     if payload.flavor_text is not None:
         lines.append(payload.flavor_text)
@@ -375,6 +388,18 @@ def format_raid_result_html(result: RaidResolutionResult) -> str:
     return "\n".join(lines)
 
 
+def format_disease_announcement_html(result: DiseaseAnnouncement) -> str:
+    lines: list[str] = []
+    if result.owner_telegram_user_id is not None and result.owner_mention_label is not None:
+        mention_label = escape(result.owner_mention_label)
+        lines.append(
+            f"🤒 <a href=\"tg://user?id={result.owner_telegram_user_id}\">{mention_label}</a>, "
+            "у вашей свиньи неприятности."
+        )
+    lines.append(escape(result.text))
+    return "\n".join(lines)
+
+
 def format_sabotage_result(result: SabotageResult) -> str:
     title = "🧨 Диверсия удалась" if result.success else "🧨 Диверсия провалилась"
     return f"{title}\n{result.narrative}"
@@ -390,3 +415,63 @@ def format_world_event(view: WorldEventView) -> str:
     lines.extend(f"• {effect}" for effect in view.effects)
     lines.append(f"До конца: {format_datetime_msk(view.ends_at)}")
     return "\n".join(lines)
+
+
+def _build_feed_flavor(result: FeedResult) -> str:
+    if result.weight_gain >= Decimal("0.90"):
+        options = (
+            "{pig_name} вылизал корыто так, будто там прятали вторую зарплату по желудям.",
+            "{pig_name} поел с таким азартом, что даже корыто теперь выглядит слегка униженным.",
+            "{pig_name} устроил пир так жирно, будто ограбил овощную лавку и вышел без свидетелей.",
+        )
+    elif result.weight_gain >= Decimal("0.60"):
+        options = (
+            "{pig_name} поужинал основательно и теперь смотрит на мир взглядом сытого рэкетира.",
+            "{pig_name} втянула корм с деловым хрюком и сразу стала похожа на важную зерновую баронессу.",
+            "{pig_name} смела пайку без остатка и теперь несёт себя как очень уважаемая хозяйка корыта.",
+        )
+    else:
+        options = (
+            "{pig_name} перекусил скромно, но с такой серьёзностью, будто это была секретная диета чемпиона.",
+            "{pig_name} захомячил свою порцию быстро и теперь выглядит как свинья с маленьким, но гордым планом.",
+            "{pig_name} урвал не самый царский обед, зато зачавкал так, будто это банкет века.",
+        )
+    return _stable_pick(options, result.pig_name, result.weight_gain, result.current_weight).format(pig_name=result.pig_name)
+
+
+def _build_battle_intro(payload: BattleMessagePayload) -> str:
+    options = (
+        "{pig1_name} и {pig2_name} влетели в арену так, будто делили последнее корыто района.",
+        "Толпа даже не успела дохрюкать ставки, как {pig1_name} и {pig2_name} устроили копытный скандал.",
+        "{pig1_name} и {pig2_name} сошлись с таким видом, будто мир слишком тесен для двух таких кусков сала.",
+    )
+    return _stable_pick(
+        options,
+        payload.pig1_name,
+        payload.pig2_name,
+        payload.pig1_weight,
+        payload.pig2_weight,
+    ).format(pig1_name=payload.pig1_name, pig2_name=payload.pig2_name)
+
+
+def _build_battle_finish(payload: BattleMessagePayload) -> str:
+    options = (
+        "{winner_name} так уверенно закрыла вопрос, что арена ещё минуту делала вид, будто всё было по правилам.",
+        "{loser_name} получила по самолюбию сильнее, чем по весам, а {winner_name} ушла собирать уважение с трибун.",
+        "После такого замеса {winner_name} выглядит как хозяйка арены, а {loser_name} как важный урок по технике падения.",
+    )
+    return _stable_pick(
+        options,
+        payload.winner_name,
+        payload.loser_name,
+        payload.winner_gain,
+        payload.loser_loss,
+    ).format(winner_name=payload.winner_name, loser_name=payload.loser_name)
+
+
+def _stable_pick(options: tuple[str, ...], *parts: object) -> str:
+    seed = "|".join(str(part) for part in parts if part is not None)
+    if not seed:
+        return options[0]
+    index = sum(ord(char) for char in seed) % len(options)
+    return options[index]

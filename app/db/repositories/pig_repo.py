@@ -98,6 +98,19 @@ class PigRepository:
             pig.battle_ready_until = None
         return pigs
 
+    async def expire_quarantined_pigs(self, *, now: datetime) -> list[Pig]:
+        stmt = select(Pig).where(
+            Pig.status == PigStatus.QUARANTINED,
+            Pig.quarantine_until.is_not(None),
+            Pig.quarantine_until <= now,
+        )
+        result = await self._session.scalars(stmt)
+        pigs = list(result.all())
+        for pig in pigs:
+            pig.status = PigStatus.IDLE
+            pig.quarantine_until = None
+        return pigs
+
     async def list_ready_group_ids(self, *, now: datetime, limit: int) -> list[int]:
         stmt = (
             select(Pig.group_id)
@@ -110,6 +123,26 @@ class PigRepository:
             .order_by(func.min(Pig.last_battle_at))
             .limit(limit)
         )
+        result = await self._session.scalars(stmt)
+        return list(result.all())
+
+    async def list_group_ids_with_pigs(self) -> list[int]:
+        stmt = select(Pig.group_id).group_by(Pig.group_id).order_by(Pig.group_id.asc())
+        result = await self._session.scalars(stmt)
+        return list(result.all())
+
+    async def list_disease_candidates(
+        self,
+        *,
+        group_id: int,
+        excluded_pig_ids: Sequence[UUID] | None = None,
+    ) -> list[Pig]:
+        stmt = select(Pig).where(
+            Pig.group_id == group_id,
+            Pig.status == PigStatus.IDLE,
+        ).order_by(asc(Pig.created_at), asc(Pig.name))
+        if excluded_pig_ids:
+            stmt = stmt.where(Pig.id.not_in(list(excluded_pig_ids)))
         result = await self._session.scalars(stmt)
         return list(result.all())
 

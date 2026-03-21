@@ -44,6 +44,9 @@ RAID_ITEM_POOLS = {
     "dump": [ITEM_MUD_CLOAK, ITEM_STINKY_OINTMENT, ITEM_LUCKY_CHARM, ITEM_WET_NEWSPAPER],
     "market": [ITEM_SUSPICIOUS_FEED, ITEM_LUCKY_CHARM, ITEM_IRON_POT],
     "woods": [ITEM_BOAR_HORSESHOES, ITEM_IRON_POT, ITEM_LUCKY_CHARM],
+    "mill": [ITEM_SUSPICIOUS_FEED, ITEM_BOAR_HORSESHOES, ITEM_LUCKY_CHARM],
+    "pier": [ITEM_MUD_CLOAK, ITEM_WET_NEWSPAPER, ITEM_STINKY_OINTMENT, ITEM_LUCKY_CHARM],
+    "manor": [ITEM_IRON_POT, ITEM_LUCKY_CHARM, ITEM_STINKY_OINTMENT, ITEM_SUSPICIOUS_FEED],
     "battle": [ITEM_IRON_POT, ITEM_SUSPICIOUS_FEED, ITEM_STINKY_OINTMENT],
     "world": [ITEM_LUCKY_CHARM, ITEM_STINKY_OINTMENT, ITEM_SUSPICIOUS_FEED, ITEM_WET_NEWSPAPER],
 }
@@ -314,7 +317,7 @@ class ItemService:
         target = await self._pigs.get_by_group_owner_for_update(group_id=pig.group_id, owner_user_id=target_user.id)
         if target is None:
             raise WetNewspaperTargetError
-        if target.status in {PigStatus.ON_RAID, PigStatus.IN_BATTLE}:
+        if target.status in {PigStatus.ON_RAID, PigStatus.IN_BATTLE, PigStatus.QUARANTINED}:
             raise WetNewspaperBlockedError
 
         existing = await self._effects.get_first_matching_for_update(

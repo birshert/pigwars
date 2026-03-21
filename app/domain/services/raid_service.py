@@ -305,6 +305,21 @@ class RaidService:
         return good, bad
 
     def _good_narrative(self, destination_title: str, found_item_title: str | None, granted_effect_title: str | None) -> str:
+        if destination_title == "Старая мельница":
+            if found_item_title is not None:
+                return f"На мельнице свинья вывалилась из муки с трофеем: {found_item_title}."
+            if granted_effect_title is not None:
+                return f"Старая мельница провернула свинью через приключение и выдала эффект «{granted_effect_title}»."
+        if destination_title == "Речная пристань":
+            if found_item_title is not None:
+                return f"На пристани свинья выгрызла удачу из ящиков и утащила {found_item_title}."
+            if granted_effect_title is not None:
+                return f"Речная пристань не утопила свинью, а наоборот подарила эффект «{granted_effect_title}»."
+        if destination_title == "Барская усадьба":
+            if found_item_title is not None:
+                return f"Из усадьбы свинья вышла с видом мелкой аристократки и с трофеем: {found_item_title}."
+            if granted_effect_title is not None:
+                return f"Барская усадьба закалила наглость свиньи и оставила ей эффект «{granted_effect_title}»."
         if found_item_title is not None:
             return f"В локации «{destination_title}» свинья нарыла трофей: {found_item_title}."
         if granted_effect_title is not None:
@@ -312,6 +327,12 @@ class RaidService:
         return f"Вылазка в «{destination_title}» прошла на редкость бодро."
 
     def _bad_narrative(self, destination_title: str, effect_title: str) -> str:
+        if destination_title == "Старая мельница":
+            return f"Мельница пережевала достоинство свиньи и выплюнула её с эффектом «{effect_title}»."
+        if destination_title == "Речная пристань":
+            return f"На пристани всё пошло по доскам. Свинья вернулась мокрая, злая и с эффектом «{effect_title}»."
+        if destination_title == "Барская усадьба":
+            return f"Усадьба оказалась не по чину. Свинья еле унесла пятачок и эффект «{effect_title}»."
         return f"Поход в «{destination_title}» закончился позором. Свинья вернулась с эффектом «{effect_title}»."
 
     def _bad_raid_effect(self, destination: RaidDestination) -> str:
@@ -319,6 +340,12 @@ class RaidService:
             return EFFECT_MUDDY_PANIC
         if destination == RaidDestination.MARKET:
             return EFFECT_FEED_SPOILED
+        if destination == RaidDestination.MILL:
+            return EFFECT_FEED_SPOILED
+        if destination == RaidDestination.PIER:
+            return EFFECT_ROUTE_CONFUSED
+        if destination == RaidDestination.MANOR:
+            return EFFECT_ARENA_NERVES
         if destination == RaidDestination.WOODS and self._rng.random() < 0.5:
             return EFFECT_ARENA_NERVES
         return EFFECT_ROUTE_CONFUSED
