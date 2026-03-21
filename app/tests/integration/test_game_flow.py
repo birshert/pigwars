@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import random
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 
 import pytest
 from sqlalchemy import select
@@ -23,6 +24,14 @@ from app.domain.services.sabotage_service import SabotageService
 from app.domain.services import disease_service as disease_service_module
 from app.domain.services import world_event_service as world_event_service_module
 from app.domain.services.world_event_service import WorldEventService
+
+
+async def _set_pig_weights(session, weights_by_name: dict[str, Decimal]) -> None:
+    pigs = list((await session.scalars(select(Pig).where(Pig.name.in_(tuple(weights_by_name))))).all())
+    assert len(pigs) == len(weights_by_name)
+    for pig in pigs:
+        pig.weight_kg = weights_by_name[pig.name]
+    await session.commit()
 
 
 @pytest.mark.asyncio
@@ -258,6 +267,228 @@ async def test_matchmaking_runs_battle_and_updates_weights(session, settings, rn
     assert sum(pig.wins for pig in pigs) == 1
     assert sum(pig.losses for pig in pigs) == 1
     assert sorted(str(pig.weight_kg) for pig in pigs) != ["10.00", "10.00"]
+
+
+@pytest.mark.asyncio
+async def test_matchmaking_prefers_nearest_weight_pairs(session, settings, lock_manager) -> None:
+    pig_service = PigService(
+        session,
+        feed_cooldown=settings.feed_cooldown,
+        battle_cooldown=settings.battle_cooldown,
+        sabotage_cooldown=settings.sabotage_cooldown,
+        raid_cooldown=settings.raid_cooldown,
+        rng=random.Random(1),
+    )
+    queue_service = BattleQueueService(
+        session,
+        battle_cooldown=settings.battle_cooldown,
+        battle_ready_ttl=settings.battle_ready_ttl,
+        rng=random.Random(2),
+        lock_manager=lock_manager,
+    )
+    matchmaking_service = MatchmakingService(
+        session,
+        settings=settings,
+        rng=random.Random(3),
+        lock_manager=lock_manager,
+    )
+    now = datetime(2026, 3, 19, 13, 0, tzinfo=timezone.utc)
+
+    for telegram_user_id, pig_name in (
+        (501, "Feather"),
+        (502, "Fluff"),
+        (503, "Brick"),
+        (504, "Boulder"),
+    ):
+        await pig_service.create_pig(
+            telegram_group_id=-10010,
+            group_title="Matchmaking Group",
+            telegram_user_id=telegram_user_id,
+            username=f"user{telegram_user_id}",
+            first_name=pig_name,
+            last_name=None,
+            pig_name=pig_name,
+            now=now,
+        )
+
+    await _set_pig_weights(
+        session,
+        {
+            "Feather": Decimal("10.00"),
+            "Fluff": Decimal("11.20"),
+            "Brick": Decimal("24.00"),
+            "Boulder": Decimal("25.10"),
+        },
+    )
+
+    for telegram_user_id in (501, 502, 503, 504):
+        await queue_service.enter_battle_mode(
+            telegram_group_id=-10010,
+            telegram_user_id=telegram_user_id,
+            now=now,
+        )
+
+    pigs = list((await session.scalars(select(Pig))).all())
+    group_id = pigs[0].group_id
+    pairs = await matchmaking_service.find_candidate_pairs(group_id=group_id, now=now + timedelta(minutes=1))
+    pig_names = {pig.id: pig.name for pig in pigs}
+    pair_names = {frozenset((pig_names[first], pig_names[second])) for first, second in pairs}
+
+    assert pair_names == {
+        frozenset(("Feather", "Fluff")),
+        frozenset(("Brick", "Boulder")),
+    }
+
+
+@pytest.mark.asyncio
+async def test_matchmaking_waits_for_expanded_weight_corridor(session, settings, lock_manager) -> None:
+    pig_service = PigService(
+        session,
+        feed_cooldown=settings.feed_cooldown,
+        battle_cooldown=settings.battle_cooldown,
+        sabotage_cooldown=settings.sabotage_cooldown,
+        raid_cooldown=settings.raid_cooldown,
+        rng=random.Random(4),
+    )
+    queue_service = BattleQueueService(
+        session,
+        battle_cooldown=settings.battle_cooldown,
+        battle_ready_ttl=settings.battle_ready_ttl,
+        rng=random.Random(5),
+        lock_manager=lock_manager,
+    )
+    matchmaking_service = MatchmakingService(
+        session,
+        settings=settings,
+        rng=random.Random(6),
+        lock_manager=lock_manager,
+    )
+    now = datetime(2026, 3, 19, 14, 0, tzinfo=timezone.utc)
+
+    for telegram_user_id, pig_name in ((601, "Small"), (602, "Large")):
+        await pig_service.create_pig(
+            telegram_group_id=-10011,
+            group_title="Corridor Group",
+            telegram_user_id=telegram_user_id,
+            username=f"user{telegram_user_id}",
+            first_name=pig_name,
+            last_name=None,
+            pig_name=pig_name,
+            now=now,
+        )
+
+    await _set_pig_weights(
+        session,
+        {
+            "Small": Decimal("10.00"),
+            "Large": Decimal("20.00"),
+        },
+    )
+
+    for telegram_user_id in (601, 602):
+        await queue_service.enter_battle_mode(
+            telegram_group_id=-10011,
+            telegram_user_id=telegram_user_id,
+            now=now,
+        )
+
+    pigs = list((await session.scalars(select(Pig))).all())
+    group_id = pigs[0].group_id
+
+    assert await matchmaking_service.find_candidate_pairs(group_id=group_id, now=now + timedelta(minutes=3)) == []
+
+    pairs = await matchmaking_service.find_candidate_pairs(group_id=group_id, now=now + timedelta(minutes=5))
+    assert len(pairs) == 1
+
+
+@pytest.mark.asyncio
+async def test_fallback_match_applies_new_transfer_rules_and_telemetry(session, settings, lock_manager) -> None:
+    pig_service = PigService(
+        session,
+        feed_cooldown=settings.feed_cooldown,
+        battle_cooldown=settings.battle_cooldown,
+        sabotage_cooldown=settings.sabotage_cooldown,
+        raid_cooldown=settings.raid_cooldown,
+        rng=random.Random(7),
+    )
+    queue_service = BattleQueueService(
+        session,
+        battle_cooldown=settings.battle_cooldown,
+        battle_ready_ttl=settings.battle_ready_ttl,
+        rng=random.Random(8),
+        lock_manager=lock_manager,
+    )
+    matchmaking_service = MatchmakingService(
+        session,
+        settings=settings,
+        rng=random.Random(9),
+        lock_manager=lock_manager,
+    )
+    now = datetime(2026, 3, 19, 15, 0, tzinfo=timezone.utc)
+
+    for telegram_user_id, pig_name in ((701, "Tiny"), (702, "Titan")):
+        await pig_service.create_pig(
+            telegram_group_id=-10012,
+            group_title="Fallback Group",
+            telegram_user_id=telegram_user_id,
+            username=f"user{telegram_user_id}",
+            first_name=pig_name,
+            last_name=None,
+            pig_name=pig_name,
+            now=now,
+        )
+
+    await _set_pig_weights(
+        session,
+        {
+            "Tiny": Decimal("10.00"),
+            "Titan": Decimal("20.00"),
+        },
+    )
+
+    for telegram_user_id in (701, 702):
+        await queue_service.enter_battle_mode(
+            telegram_group_id=-10012,
+            telegram_user_id=telegram_user_id,
+            now=now,
+        )
+
+    battles = await matchmaking_service.process_matchmaking_cycle(now=now + timedelta(minutes=5))
+    assert len(battles) == 1
+
+    pigs = list((await session.scalars(select(Pig).order_by(Pig.name))).all())
+    by_name = {pig.name: pig for pig in pigs}
+    winner = by_name["Tiny"] if by_name["Tiny"].wins == 1 else by_name["Titan"]
+    loser = by_name["Titan"] if winner.name == "Tiny" else by_name["Tiny"]
+
+    if winner.name == "Titan":
+        assert winner.weight_kg == Decimal("20.11")
+        assert loser.weight_kg == Decimal("9.62")
+        expected_transfer_multiplier = "0.2625"
+        expected_winner_was_underdog = False
+    else:
+        assert winner.weight_kg == Decimal("11.24")
+        assert loser.weight_kg == Decimal("18.85")
+        expected_transfer_multiplier = "1.5525"
+        expected_winner_was_underdog = True
+
+    battle_events = list(
+        (
+            await session.scalars(
+                select(PigEvent)
+                .where(PigEvent.event_type.in_(("battle_won", "battle_lost")))
+                .order_by(PigEvent.event_type.asc(), PigEvent.id.asc())
+            )
+        ).all()
+    )
+    assert len(battle_events) == 2
+
+    for event in battle_events:
+        assert event.payload is not None
+        assert event.payload["matchup_class"] == "stomp"
+        assert event.payload["weight_ratio"] == "2.00"
+        assert event.payload["winner_was_underdog"] is expected_winner_was_underdog
+        assert event.payload["transfer_multiplier"] == expected_transfer_multiplier
 
 
 @pytest.mark.asyncio

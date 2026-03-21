@@ -219,6 +219,10 @@ class BattleService:
                     payload={
                         "opponent_id": str(loser.id),
                         "weight_gain": str(result.winner_gain),
+                        "matchup_class": result.matchup_class.value,
+                        "weight_ratio": str(result.weight_ratio),
+                        "winner_was_underdog": result.winner_was_underdog,
+                        "transfer_multiplier": str(result.transfer_multiplier),
                         "loot": loot.title if loot is not None else None,
                     },
                 )
@@ -226,7 +230,14 @@ class BattleService:
                     pig_id=loser.id,
                     group_id=group_id,
                     event_type="battle_lost",
-                    payload={"opponent_id": str(winner.id), "weight_loss": str(result.loser_loss)},
+                    payload={
+                        "opponent_id": str(winner.id),
+                        "weight_loss": str(result.loser_loss),
+                        "matchup_class": result.matchup_class.value,
+                        "weight_ratio": str(result.weight_ratio),
+                        "winner_was_underdog": result.winner_was_underdog,
+                        "transfer_multiplier": str(result.transfer_multiplier),
+                    },
                 )
                 if winner_mood_delta != 0:
                     await self._events.create(

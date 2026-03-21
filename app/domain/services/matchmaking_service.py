@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from decimal import Decimal
 import random
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from uuid import UUID
 
@@ -13,6 +15,19 @@ from app.domain.rules.cooldowns import ensure_utc
 from app.domain.services.battle_service import BattleService
 from app.infra.locks import RedisLockManager
 from app.schemas.battle import BattleMessagePayload
+
+
+@dataclass(frozen=True, slots=True)
+class WeightCorridor:
+    max_difference_kg: Decimal
+    max_difference_ratio: Decimal
+
+
+EARLY_CORRIDOR = WeightCorridor(max_difference_kg=Decimal("4.00"), max_difference_ratio=Decimal("0.15"))
+MID_CORRIDOR = WeightCorridor(max_difference_kg=Decimal("7.00"), max_difference_ratio=Decimal("0.25"))
+LATE_CORRIDOR = WeightCorridor(max_difference_kg=Decimal("12.00"), max_difference_ratio=Decimal("0.40"))
+EARLY_WAIT_WINDOW = timedelta(minutes=2)
+MID_WAIT_WINDOW = timedelta(minutes=4)
 
 
 class MatchmakingService:
@@ -49,14 +64,18 @@ class MatchmakingService:
             now=now,
             limit=self._settings.matchmaking_batch_size,
         )
-        self._rng.shuffle(pigs)
-
         pairs: list[tuple[UUID, UUID]] = []
-        for index in range(0, len(pigs) - 1, 2):
-            first = pigs[index]
-            second = pigs[index + 1]
-            if self._should_match(first.last_battle_at or now, second.last_battle_at or now, now=now):
-                pairs.append((first.id, second.id))
+        available = list(pigs)
+
+        while len(available) > 1:
+            anchor = available.pop(0)
+            candidate_index = self._find_best_candidate(anchor, available, now=now)
+            if candidate_index is None:
+                continue
+
+            candidate = available.pop(candidate_index)
+            if self._should_match(anchor.last_battle_at or now, candidate.last_battle_at or now, now=now):
+                pairs.append((anchor.id, candidate.id))
         return pairs
 
     async def process_matchmaking_cycle(self, *, now: datetime) -> list[BattleMessagePayload]:
@@ -95,3 +114,52 @@ class MatchmakingService:
         increments = int(waited_seconds // timedelta(seconds=self._settings.match_wait_bonus_every_seconds).total_seconds())
         probability = self._settings.match_base_probability + (increments * self._settings.match_wait_bonus)
         return min(probability, self._settings.match_probability_cap)
+
+    def _find_best_candidate(self, anchor, candidates: list, *, now: datetime) -> int | None:
+        best_index: int | None = None
+        best_key: tuple[Decimal, datetime, datetime] | None = None
+
+        for index, candidate in enumerate(candidates):
+            if not self._is_within_weight_corridor(anchor, candidate, now=now):
+                continue
+
+            key = (
+                self._calculate_relative_weight_gap(anchor.weight_kg, candidate.weight_kg),
+                ensure_utc(candidate.last_battle_at) or now,
+                candidate.created_at,
+            )
+            if best_key is None or key < best_key:
+                best_index = index
+                best_key = key
+
+        return best_index
+
+    def _is_within_weight_corridor(self, pig1, pig2, *, now: datetime) -> bool:
+        weight_gap = abs(pig1.weight_kg - pig2.weight_kg)
+        heavier_weight = max(pig1.weight_kg, pig2.weight_kg)
+        corridor_limit = min(
+            self._calculate_weight_corridor(pig1.last_battle_at or now, heavier_weight=heavier_weight, now=now),
+            self._calculate_weight_corridor(pig2.last_battle_at or now, heavier_weight=heavier_weight, now=now),
+        )
+        return weight_gap <= corridor_limit
+
+    def _calculate_weight_corridor(self, ready_at: datetime, *, heavier_weight: Decimal, now: datetime) -> Decimal:
+        corridor = self._resolve_weight_corridor(ready_at, now=now)
+        return max(corridor.max_difference_kg, heavier_weight * corridor.max_difference_ratio)
+
+    def _resolve_weight_corridor(self, ready_at: datetime, *, now: datetime) -> WeightCorridor:
+        normalized_now = ensure_utc(now) or now
+        normalized_ready_at = ensure_utc(ready_at) or ready_at
+        waited_for = max(normalized_now - normalized_ready_at, timedelta())
+
+        if waited_for < EARLY_WAIT_WINDOW:
+            return EARLY_CORRIDOR
+        if waited_for < MID_WAIT_WINDOW:
+            return MID_CORRIDOR
+        return LATE_CORRIDOR
+
+    def _calculate_relative_weight_gap(self, weight1: Decimal, weight2: Decimal) -> Decimal:
+        heavier_weight = max(weight1, weight2)
+        if heavier_weight <= Decimal("0.00"):
+            return Decimal("0.00")
+        return abs(weight1 - weight2) / heavier_weight

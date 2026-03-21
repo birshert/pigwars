@@ -6,10 +6,6 @@ from decimal import Decimal
 from app.domain.models.pig import WeightTier
 
 
-THREE = Decimal("3.00")
-TEN = Decimal("10.00")
-
-
 @dataclass(frozen=True, slots=True)
 class TierModifier:
     tier: WeightTier
@@ -21,7 +17,7 @@ class TierModifier:
 PIGLET_MODIFIER = TierModifier(
     tier=WeightTier.PIGLET,
     label="Поросёнок",
-    power_bonus=Decimal("-1.00"),
+    power_bonus=Decimal("0.00"),
     agility_bonus=2,
 )
 BRUISER_MODIFIER = TierModifier(
@@ -33,13 +29,13 @@ BRUISER_MODIFIER = TierModifier(
 BOAR_MODIFIER = TierModifier(
     tier=WeightTier.BOAR,
     label="Кабан",
-    power_bonus=Decimal("3.00"),
+    power_bonus=Decimal("1.00"),
     agility_bonus=-1,
 )
 TANK_MODIFIER = TierModifier(
     tier=WeightTier.TANK,
     label="Танк",
-    power_bonus=Decimal("5.00"),
+    power_bonus=Decimal("2.00"),
     agility_bonus=-2,
 )
 
