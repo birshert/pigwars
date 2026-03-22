@@ -11,7 +11,7 @@ from app.db.models import GroupDiseaseRoll, Pig, PigDailyAction, PigEffect, PigE
 from app.domain.disease_catalog import DISEASE_FEED_COLD, DISEASE_QUARANTINE_SCREAM, get_disease_definition
 from app.domain.exceptions import FeedCooldownError, PigAlreadyExistsError, PigBusyError
 from app.domain.feature_catalog import EFFECT_WET_NEWSPAPER_CURSE, ITEM_WET_NEWSPAPER, WORLD_EVENT_DIVINE_OINK, get_world_event_definition
-from app.domain.models.pig import PigTrait, RaidDestination
+from app.domain.models.pig import PigStatus, PigTrait, RaidDestination
 from app.domain.services.battle_service import BattleQueueService
 from app.domain.services.daily_feature_service import DailyFeatureService
 from app.domain.services.disease_service import DiseaseService
@@ -783,7 +783,6 @@ async def test_disease_slot_applies_effect_and_is_idempotent(session, settings, 
         rng=rng,
     )
     settings.disease_day_chance = 1.0
-    settings.openai_api_key = None
     definition = get_disease_definition(DISEASE_FEED_COLD)
     now = datetime(2026, 3, 20, 6, 0, tzinfo=timezone.utc)
 
@@ -803,6 +802,7 @@ async def test_disease_slot_applies_effect_and_is_idempotent(session, settings, 
         pig_name="Snort",
         now=now - timedelta(hours=1),
     )
+    await _set_pig_weights(session, {"Snort": Decimal("100.00")})
 
     service = DiseaseService(session, settings=settings, rng=random.Random(31))
     announcements = await service.process_current_slot(now=now)
@@ -815,8 +815,8 @@ async def test_disease_slot_applies_effect_and_is_idempotent(session, settings, 
     assert len(announcements) == 1
     assert repeated == []
     assert pig is not None
-    assert pig.status.value == "idle"
-    assert pig.weight_kg < 10
+    assert pig.status == PigStatus.IDLE
+    assert Decimal("50.00") <= pig.weight_kg <= Decimal("95.00")
     assert effect is not None
     assert len(rolls) == 1
     assert rolls[0].disease_code == definition.code
@@ -835,7 +835,6 @@ async def test_disease_quarantine_blocks_actions_and_expires(session, settings, 
         rng=rng,
     )
     settings.disease_day_chance = 1.0
-    settings.openai_api_key = None
     definition = get_disease_definition(DISEASE_QUARANTINE_SCREAM)
     now = datetime(2026, 3, 20, 6, 0, tzinfo=timezone.utc)
 
@@ -892,7 +891,7 @@ async def test_disease_quarantine_blocks_actions_and_expires(session, settings, 
 
 
 @pytest.mark.asyncio
-async def test_disease_service_skips_non_slot_hours(session, settings, rng) -> None:
+async def test_quarantine_does_not_block_next_disease(session, settings, rng, monkeypatch) -> None:
     pig_service = PigService(
         session,
         feed_cooldown=settings.feed_cooldown,
@@ -902,8 +901,60 @@ async def test_disease_service_skips_non_slot_hours(session, settings, rng) -> N
         rng=rng,
     )
     settings.disease_day_chance = 1.0
-    settings.openai_api_key = None
-    now = datetime(2026, 3, 20, 7, 0, tzinfo=timezone.utc)
+    quarantine_definition = get_disease_definition(DISEASE_QUARANTINE_SCREAM)
+    second_definition = get_disease_definition(DISEASE_FEED_COLD)
+    definitions = iter((quarantine_definition, second_definition))
+    now = datetime(2026, 3, 20, 6, 0, tzinfo=timezone.utc)
+
+    monkeypatch.setattr(
+        disease_service_module,
+        "pick_disease_definition",
+        lambda *, rng: next(definitions),
+    )
+
+    await pig_service.create_pig(
+        telegram_group_id=-10015,
+        group_title="Stacked Disease Group",
+        telegram_user_id=8080,
+        username="stackedpig",
+        first_name="Stacked",
+        last_name=None,
+        pig_name="LockedIn",
+        now=now - timedelta(hours=1),
+    )
+    await _set_pig_weights(session, {"LockedIn": Decimal("60.00")})
+
+    disease_service = DiseaseService(session, settings=settings, rng=random.Random(43))
+    first = await disease_service.process_current_slot(now=now)
+    second = await disease_service.process_current_slot(now=now + timedelta(minutes=15))
+
+    pig = await session.scalar(select(Pig).where(Pig.name == "LockedIn"))
+    rolls = list((await session.scalars(select(GroupDiseaseRoll).order_by(GroupDiseaseRoll.id))).all())
+    effects = list((await session.scalars(select(PigEffect).where(PigEffect.pig_id == pig.id))).all())
+
+    assert len(first) == 1
+    assert len(second) == 1
+    assert pig is not None
+    assert pig.status == PigStatus.QUARANTINED
+    assert len(rolls) == 2
+    assert rolls[0].disease_code == quarantine_definition.code
+    assert rolls[1].disease_code == second_definition.code
+    assert len(effects) == 2
+    assert second_definition.title in second[0].text
+
+
+@pytest.mark.asyncio
+async def test_disease_service_skips_non_slot_minutes(session, settings, rng) -> None:
+    pig_service = PigService(
+        session,
+        feed_cooldown=settings.feed_cooldown,
+        battle_cooldown=settings.battle_cooldown,
+        sabotage_cooldown=settings.sabotage_cooldown,
+        raid_cooldown=settings.raid_cooldown,
+        rng=rng,
+    )
+    settings.disease_day_chance = 1.0
+    now = datetime(2026, 3, 20, 7, 7, tzinfo=timezone.utc)
 
     await pig_service.create_pig(
         telegram_group_id=-10012,
@@ -925,6 +976,75 @@ async def test_disease_service_skips_non_slot_hours(session, settings, rng) -> N
 
 
 @pytest.mark.asyncio
+async def test_fatal_disease_kills_pig_and_allows_recreate(session, settings, rng, monkeypatch) -> None:
+    pig_service = PigService(
+        session,
+        feed_cooldown=settings.feed_cooldown,
+        battle_cooldown=settings.battle_cooldown,
+        sabotage_cooldown=settings.sabotage_cooldown,
+        raid_cooldown=settings.raid_cooldown,
+        rng=rng,
+    )
+    settings.disease_day_chance = 1.0
+    definition = get_disease_definition("hay_hemorrhoids")
+    now = datetime(2026, 3, 20, 6, 15, tzinfo=timezone.utc)
+
+    monkeypatch.setattr(
+        disease_service_module,
+        "pick_disease_definition",
+        lambda *, rng: definition,
+    )
+
+    await pig_service.create_pig(
+        telegram_group_id=-10014,
+        group_title="Fatal Group",
+        telegram_user_id=7070,
+        username="doomedpig",
+        first_name="Doomed",
+        last_name=None,
+        pig_name="Victim",
+        now=now - timedelta(hours=1),
+    )
+    await _set_pig_weights(session, {"Victim": Decimal("40.00")})
+
+    service = DiseaseService(session, settings=settings, rng=random.Random(41))
+    announcements = await service.process_current_slot(now=now)
+
+    pig = await session.scalar(select(Pig).where(Pig.name == "Victim"))
+    roll = await session.scalar(select(GroupDiseaseRoll).where(GroupDiseaseRoll.pig_id == pig.id))
+    death_event = await session.scalar(select(PigEvent).where(PigEvent.event_type == "pig_died"))
+
+    assert len(announcements) == 1
+    assert pig is not None
+    assert pig.status == PigStatus.DEAD
+    assert pig.weight_kg < Decimal("40.00")
+    assert roll is not None
+    assert roll.payload["fatal_outcome"] is True
+    assert death_event is not None
+    assert "Victim" in announcements[0].text
+    await session.commit()
+
+    revived = await pig_service.create_pig(
+        telegram_group_id=-10014,
+        group_title="Fatal Group",
+        telegram_user_id=7070,
+        username="doomedpig",
+        first_name="Doomed",
+        last_name=None,
+        pig_name="Back Again",
+        now=now + timedelta(minutes=1),
+    )
+    revived_pig = await session.scalar(select(Pig).where(Pig.owner_user_id == pig.owner_user_id))
+    reborn_event = await session.scalar(select(PigEvent).where(PigEvent.event_type == "pig_reborn"))
+
+    assert revived.name == "Back Again"
+    assert revived_pig is not None
+    assert revived_pig.status == PigStatus.IDLE
+    assert revived_pig.weight_kg == Decimal("10.00")
+    assert reborn_event is not None
+
+
+@pytest.mark.asyncio
 async def test_manual_disease_trigger_works_outside_schedule(session, settings, rng, monkeypatch) -> None:
     pig_service = PigService(
         session,
@@ -934,7 +1054,6 @@ async def test_manual_disease_trigger_works_outside_schedule(session, settings, 
         raid_cooldown=settings.raid_cooldown,
         rng=rng,
     )
-    settings.openai_api_key = None
     definition = get_disease_definition(DISEASE_FEED_COLD)
     now = datetime(2026, 3, 20, 7, 0, tzinfo=timezone.utc)
 
@@ -971,3 +1090,63 @@ async def test_manual_disease_trigger_works_outside_schedule(session, settings, 
     assert roll is not None
     assert roll.payload["slot_kind"] == "manual"
     assert roll.payload["trigger_mode"] == "manual"
+
+
+@pytest.mark.asyncio
+async def test_manual_disease_ignores_existing_active_disease(session, settings, rng, monkeypatch) -> None:
+    pig_service = PigService(
+        session,
+        feed_cooldown=settings.feed_cooldown,
+        battle_cooldown=settings.battle_cooldown,
+        sabotage_cooldown=settings.sabotage_cooldown,
+        raid_cooldown=settings.raid_cooldown,
+        rng=rng,
+    )
+    first_definition = get_disease_definition(DISEASE_QUARANTINE_SCREAM)
+    second_definition = get_disease_definition(DISEASE_FEED_COLD)
+    definitions = iter((first_definition, second_definition))
+    now = datetime(2026, 3, 20, 7, 0, tzinfo=timezone.utc)
+
+    monkeypatch.setattr(
+        disease_service_module,
+        "pick_disease_definition",
+        lambda *, rng: next(definitions),
+    )
+
+    await pig_service.create_pig(
+        telegram_group_id=-10016,
+        group_title="Manual Stack Group",
+        telegram_user_id=9090,
+        username="manualstack",
+        first_name="Manual",
+        last_name=None,
+        pig_name="StackMe",
+        now=now - timedelta(hours=1),
+    )
+    await _set_pig_weights(session, {"StackMe": Decimal("50.00")})
+    pig = await session.scalar(select(Pig).where(Pig.name == "StackMe"))
+    assert pig is not None
+    await session.commit()
+
+    service = DiseaseService(session, settings=settings, rng=random.Random(47))
+    first = await service.trigger_manual_disease(now=now, group_id=pig.group_id)
+    second = await service.trigger_manual_disease(now=now + timedelta(minutes=1), group_id=pig.group_id)
+
+    pig = await session.scalar(select(Pig).where(Pig.name == "StackMe"))
+    rolls = list(
+        (
+            await session.scalars(
+                select(GroupDiseaseRoll)
+                .where(GroupDiseaseRoll.group_id == pig.group_id)
+                .order_by(GroupDiseaseRoll.id)
+            )
+        ).all()
+    )
+
+    assert first is not None
+    assert second is not None
+    assert pig is not None
+    assert len(rolls) == 2
+    assert rolls[0].disease_code == first_definition.code
+    assert rolls[1].disease_code == second_definition.code
+    assert second_definition.title in second.text

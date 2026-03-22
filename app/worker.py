@@ -18,6 +18,7 @@ from app.domain.services.matchmaking_service import MatchmakingService
 from app.domain.services.raid_service import RaidService
 from app.domain.services.world_event_service import WorldEventService
 from app.infra.scheduler import run_periodic_job
+from app.infra.telegram import send_message_with_migration
 from app.logging import logger
 
 
@@ -65,17 +66,19 @@ async def run_worker_tick(app_context: AppContext) -> None:
         logger.info("Purged %s inactive temporary effects", purged_effects)
 
     for battle in battles:
-        await app_context.bot.send_message(battle.telegram_group_id, format_battle_result(battle))
+        await send_message_with_migration(app_context.bot, battle.telegram_group_id, format_battle_result(battle))
     for raid in raid_results:
-        await app_context.bot.send_message(
+        await send_message_with_migration(
+            app_context.bot,
             raid.telegram_group_id,
             format_raid_result_html(raid),
             parse_mode=ParseMode.HTML,
         )
     for telegram_group_id, text in world_announcements:
-        await app_context.bot.send_message(telegram_group_id, text)
+        await send_message_with_migration(app_context.bot, telegram_group_id, text)
     for announcement in disease_announcements:
-        await app_context.bot.send_message(
+        await send_message_with_migration(
+            app_context.bot,
             announcement.telegram_group_id,
             format_disease_announcement_html(announcement),
             parse_mode=ParseMode.HTML,

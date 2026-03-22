@@ -13,6 +13,7 @@ class PigStatus(StrEnum):
     IN_BATTLE = "in_battle"
     ON_RAID = "on_raid"
     QUARANTINED = "quarantined"
+    DEAD = "dead"
 
 
 class PigTrait(StrEnum):

@@ -73,10 +73,9 @@ class DiseaseService:
 
         slot = get_current_disease_slot(
             now,
-            interval_hours=self._settings.disease_interval_hours,
+            interval_minutes=self._settings.disease_interval_minutes,
             day_start_hour_msk=self._settings.disease_day_start_hour_msk,
             day_end_hour_msk=self._settings.disease_day_end_hour_msk,
-            night_hour_msk=self._settings.disease_night_hour_msk,
         )
         if slot is None:
             return []
@@ -175,7 +174,12 @@ class DiseaseService:
         group_id: int,
         now: datetime,
     ) -> _PendingAnnouncement | None:
-        pig = await self._pick_candidate(group_id=group_id, now=now, ignore_recent_history=True)
+        pig = await self._pick_candidate(
+            group_id=group_id,
+            now=now,
+            ignore_recent_history=True,
+            ignore_active_diseases=True,
+        )
         if pig is None:
             return None
 
@@ -192,22 +196,42 @@ class DiseaseService:
             payload_extra={"trigger_mode": "manual"},
         )
 
-    async def _pick_candidate(self, *, group_id: int, now: datetime, ignore_recent_history: bool = False):
-        active_disease_ids = await self._effects.list_active_pig_ids_by_effect_types(
-            group_id=group_id,
-            effect_types=list(DISEASE_EFFECT_TYPES),
-            now=now,
-        )
+    async def _pick_candidate(
+        self,
+        *,
+        group_id: int,
+        now: datetime,
+        ignore_recent_history: bool = False,
+        ignore_active_diseases: bool = False,
+    ):
+        active_disease_ids: list = []
+        if not ignore_active_diseases:
+            active_disease_ids = await self._effects.list_active_pig_ids_by_effect_types(
+                group_id=group_id,
+                effect_types=list(DISEASE_EFFECT_TYPES),
+                now=now,
+            )
         recent_disease_ids: list = []
         if not ignore_recent_history:
             recent_disease_ids = await self._rolls.list_recent_triggered_pig_ids(
                 group_id=group_id,
                 since=now - self._settings.disease_repeat_cooldown,
             )
-        excluded = list(set(active_disease_ids) | set(recent_disease_ids))
-        candidates = await self._pigs.list_disease_candidates(group_id=group_id, excluded_pig_ids=excluded)
+        excluded = set(active_disease_ids) | set(recent_disease_ids)
+        candidates = await self._pigs.list_disease_candidates(group_id=group_id)
+        candidates = [
+            pig
+            for pig in candidates
+            if pig.status == PigStatus.QUARANTINED or pig.id not in excluded
+        ]
         if not candidates and recent_disease_ids:
-            candidates = await self._pigs.list_disease_candidates(group_id=group_id, excluded_pig_ids=active_disease_ids)
+            active_only = set(active_disease_ids)
+            candidates = await self._pigs.list_disease_candidates(group_id=group_id)
+            candidates = [
+                pig
+                for pig in candidates
+                if pig.status == PigStatus.QUARANTINED or pig.id not in active_only
+            ]
         if not candidates:
             return None
         return self._rng.choice(candidates)
@@ -223,25 +247,36 @@ class DiseaseService:
         payload_extra: dict[str, str] | None = None,
     ) -> _PendingAnnouncement:
         definition = pick_disease_definition(rng=self._rng)
-        weight_loss = self._roll_weight_loss(definition=definition, current_weight=pig.weight_kg)
+        weight_loss = self._roll_weight_loss(current_weight=pig.weight_kg)
         pig.weight_kg -= weight_loss
-        mood_delta = apply_mood_change(pig, delta=definition.mood_delta)
-        loyalty_delta = apply_loyalty_change(pig, delta=definition.loyalty_delta)
-        effect_expires_at = self._calculate_effect_expiry(definition=definition, now=now)
-        quarantine_until = effect_expires_at if definition.quarantine_until_end_of_day else None
+        fatal_outcome = definition.fatal_outcome
+        death_message = self._build_fatal_message(definition=definition, pig_name=pig.name) if fatal_outcome else None
+        effect_expires_at = now if fatal_outcome else self._calculate_effect_expiry(definition=definition, now=now)
+        quarantine_until = effect_expires_at if definition.quarantine_until_end_of_day and not fatal_outcome else None
+        mood_delta = 0
+        loyalty_delta = 0
 
-        if quarantine_until is not None:
-            pig.status = PigStatus.QUARANTINED
-            pig.quarantine_until = quarantine_until
+        if fatal_outcome:
+            pig.status = PigStatus.DEAD
+            pig.quarantine_until = None
+            pig.battle_ready_until = None
+            pig.raid_until = None
+        else:
+            mood_delta = apply_mood_change(pig, delta=definition.mood_delta)
+            loyalty_delta = apply_loyalty_change(pig, delta=definition.loyalty_delta)
+            if quarantine_until is not None:
+                pig.status = PigStatus.QUARANTINED
+                pig.quarantine_until = quarantine_until
+            if definition.effect_type is not None:
+                await self._effects.create(
+                    pig_id=pig.id,
+                    group_id=pig.group_id,
+                    effect_type=definition.effect_type,
+                    source_type="disease",
+                    payload={"disease_code": definition.code, "scheduled_for": scheduled_for.isoformat()},
+                    expires_at=effect_expires_at,
+                )
 
-        await self._effects.create(
-            pig_id=pig.id,
-            group_id=pig.group_id,
-            effect_type=definition.effect_type,
-            source_type="disease",
-            payload={"disease_code": definition.code, "scheduled_for": scheduled_for.isoformat()},
-            expires_at=effect_expires_at,
-        )
         await self._events.create(
             pig_id=pig.id,
             group_id=pig.group_id,
@@ -250,10 +285,24 @@ class DiseaseService:
                 "disease_code": definition.code,
                 "disease_title": definition.title,
                 "weight_loss": str(weight_loss),
-                "effect_expires_at": effect_expires_at.isoformat(),
+                "effect_expires_at": effect_expires_at.isoformat() if not fatal_outcome else None,
                 "quarantine_until": quarantine_until.isoformat() if quarantine_until is not None else None,
+                "fatal_outcome": fatal_outcome,
+                "death_message": death_message,
             },
         )
+        if fatal_outcome:
+            await self._events.create(
+                pig_id=pig.id,
+                group_id=pig.group_id,
+                event_type="pig_died",
+                payload={
+                    "disease_code": definition.code,
+                    "disease_title": definition.title,
+                    "death_message": death_message,
+                    "died_at": now.isoformat(),
+                },
+            )
         if quarantine_until is not None:
             await self._events.create(
                 pig_id=pig.id,
@@ -281,6 +330,8 @@ class DiseaseService:
             pig_name=pig.name,
             disease_title=definition.title,
             disease_summary=definition.summary,
+            fatal_outcome=fatal_outcome,
+            death_message=death_message,
             weight_loss=weight_loss,
             current_weight=pig.weight_kg,
             mood_label=get_mood_label(pig.mood_score),
@@ -295,9 +346,11 @@ class DiseaseService:
             "disease_title": definition.title,
             "effect_type": definition.effect_type,
             "weight_loss": str(weight_loss),
-            "effect_expires_at": effect_expires_at.isoformat(),
+            "effect_expires_at": effect_expires_at.isoformat() if not fatal_outcome else None,
             "quarantine_until": quarantine_until.isoformat() if quarantine_until is not None else None,
             "slot_kind": slot_kind,
+            "fatal_outcome": fatal_outcome,
+            "death_message": death_message,
         }
         if payload_extra:
             payload.update(payload_extra)
@@ -348,10 +401,25 @@ class DiseaseService:
         full_name = " ".join(part for part in parts if part)
         return full_name or owner.first_name
 
-    def _roll_weight_loss(self, *, definition: DiseaseDefinition, current_weight: Decimal) -> Decimal:
-        raw_loss = Decimal(str(self._rng.uniform(float(definition.weight_loss_min), float(definition.weight_loss_max))))
+    def _roll_weight_loss(self, *, current_weight: Decimal) -> Decimal:
+        raw_loss_percent = Decimal(
+            str(
+                self._rng.uniform(
+                    self._settings.disease_weight_loss_min_percent,
+                    self._settings.disease_weight_loss_max_percent,
+                )
+            )
+        )
+        raw_loss = current_weight * (raw_loss_percent / Decimal("100"))
         safe_loss = min(raw_loss, max(current_weight - MIN_PIG_WEIGHT, Decimal("0.00")))
         return quantize_weight(max(safe_loss, Decimal("0.00")))
+
+    def _build_fatal_message(self, *, definition: DiseaseDefinition, pig_name: str) -> str:
+        templates = definition.fatal_message_templates
+        if not templates:
+            return f"☠️ {pig_name} скончалась от «{definition.title}». Хлев даже не стал делать скорбное лицо."
+        template = self._rng.choice(templates)
+        return template.format(pig_name=pig_name, disease_title=definition.title)
 
     def _calculate_effect_expiry(self, *, definition: DiseaseDefinition, now: datetime) -> datetime:
         if definition.quarantine_until_end_of_day:

@@ -11,6 +11,7 @@ from app.db.repositories.daily_digest_repo import PENDING_RETRY_AFTER, DailyDige
 from app.domain.models.daily_digest import DailyDigestStatus
 from app.domain.services.daily_digest_facts_service import DailyDigestFactsService
 from app.domain.services.daily_digest_summary_service import DailyDigestSummaryService
+from app.infra.telegram import send_message_with_migration
 from app.logging import logger
 
 
@@ -105,7 +106,7 @@ async def send_digest_for_group(
 
         summary_result = await DailyDigestSummaryService(app_context.settings).generate_summary(facts)
         summary_text = format_daily_digest_message(facts, summary_result.text)
-        sent_message = await app_context.bot.send_message(group.telegram_group_id, summary_text)
+        sent_message, _ = await send_message_with_migration(app_context.bot, group.telegram_group_id, summary_text)
 
         async with session_scope(app_context.session_factory) as session:
             async with session.begin():

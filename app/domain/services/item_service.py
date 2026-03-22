@@ -317,7 +317,7 @@ class ItemService:
         target = await self._pigs.get_by_group_owner_for_update(group_id=pig.group_id, owner_user_id=target_user.id)
         if target is None:
             raise WetNewspaperTargetError
-        if target.status in {PigStatus.ON_RAID, PigStatus.IN_BATTLE, PigStatus.QUARANTINED}:
+        if target.status in {PigStatus.ON_RAID, PigStatus.IN_BATTLE, PigStatus.QUARANTINED, PigStatus.DEAD}:
             raise WetNewspaperBlockedError
 
         existing = await self._effects.get_first_matching_for_update(

@@ -1,66 +1,16 @@
 from __future__ import annotations
 
-import json
-
-from openai import AsyncOpenAI
-
 from app.config import Settings
-from app.logging import logger
 from app.schemas.digest import DailyDigestFacts, DailyDigestSummaryResult
 
 
 class DailyDigestSummaryService:
-    def __init__(self, settings: Settings) -> None:
-        self._settings = settings
+    def __init__(self, _settings: Settings) -> None:
+        pass
 
     async def generate_summary(self, facts: DailyDigestFacts) -> DailyDigestSummaryResult:
         fallback = self._build_fallback_paragraph(facts)
-        if not self._settings.openai_api_key or not self._settings.daily_digest_model:
-            return DailyDigestSummaryResult(text=fallback, llm_model=None, used_llm=False)
-
-        prompt = "Факты за день:\n" + json.dumps(facts.to_payload(), ensure_ascii=False, indent=2)
-        instructions = (
-            "Ты пишешь только один короткий абзац для утреннего дайджеста PigWars на русском языке. "
-            "Используй только факты из JSON. Не придумывай имена, числа, предметы, причины или события. "
-            "Сохраняй мемный деревенско-ироничный тон, но сначала факт, потом шутка. "
-            "Выход: ровно один абзац, 2-4 коротких предложения, без заголовка, без списков, без markdown, "
-            "без повторения всей таблицы лидеров."
-        )
-
-        try:
-            async with AsyncOpenAI(
-                api_key=self._settings.openai_api_key,
-                timeout=self._settings.daily_digest_llm_timeout_seconds,
-            ) as client:
-                response = await client.responses.create(
-                    model=self._settings.daily_digest_model,
-                    instructions=instructions,
-                    input=prompt,
-                    max_output_tokens=220,
-                )
-        except Exception:
-            logger.warning(
-                "Daily digest LLM request failed for group %s on %s",
-                facts.group_id,
-                facts.digest_day,
-                exc_info=True,
-            )
-            return DailyDigestSummaryResult(text=fallback, llm_model=None, used_llm=False)
-
-        text = self._normalize_text(getattr(response, "output_text", ""))
-        if not self._is_valid_summary(text):
-            logger.warning(
-                "Daily digest LLM returned invalid summary for group %s on %s",
-                facts.group_id,
-                facts.digest_day,
-            )
-            return DailyDigestSummaryResult(text=fallback, llm_model=None, used_llm=False)
-
-        return DailyDigestSummaryResult(
-            text=text,
-            llm_model=self._settings.daily_digest_model,
-            used_llm=True,
-        )
+        return DailyDigestSummaryResult(text=fallback, llm_model=None, used_llm=False)
 
     def _build_fallback_paragraph(self, facts: DailyDigestFacts) -> str:
         counts = facts.counts
@@ -104,12 +54,3 @@ class DailyDigestSummaryService:
             sentences.append(f"Над хлевом всё ещё висит мировое событие «{world_event.title}».")
 
         return " ".join(sentences[:3])
-
-    def _normalize_text(self, text: str) -> str:
-        return " ".join(text.split())
-
-    def _is_valid_summary(self, text: str) -> bool:
-        if len(text) < 40 or len(text) > 420:
-            return False
-        banned_markers = ("•", "1.", "2.", "3.", "Главное за вчера", "Текущий топ по весу")
-        return not any(marker in text for marker in banned_markers)

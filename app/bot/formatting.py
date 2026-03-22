@@ -33,6 +33,7 @@ STATUS_LABELS = {
     PigStatus.IN_BATTLE: "в бою",
     PigStatus.ON_RAID: "в вылазке",
     PigStatus.QUARANTINED: "в карантине",
+    PigStatus.DEAD: "мертва",
 }
 
 

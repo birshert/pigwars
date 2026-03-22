@@ -5,6 +5,8 @@ from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
+from aiogram.exceptions import TelegramMigrateToChat
+from aiogram.methods import SendMessage
 from sqlalchemy import select, update
 
 from app.bot.formatting import format_daily_digest_message
@@ -143,7 +145,6 @@ async def test_daily_digest_facts_collect_counts_and_message(session, settings, 
 async def test_worker_sends_daily_digest_once(session_factory, settings, rng, lock_manager, monkeypatch) -> None:
     settings.daily_digest_enabled = True
     settings.daily_digest_hour_msk = 9
-    settings.daily_digest_model = "gpt-5-nano"
     settings.daily_digest_group_allowlist = (-10101,)
     settings.disease_enabled = False
 
@@ -309,3 +310,52 @@ async def test_admin_disease_handler_runs_from_private_chat(monkeypatch) -> None
     assert len(message.answers) == 1
     assert "Болезнь запущена вручную." in message.answers[0]
     assert "Manual Group" in message.answers[0]
+
+
+@pytest.mark.asyncio
+async def test_admin_disease_handler_retries_migrated_group(monkeypatch) -> None:
+    class FakeDiseaseService:
+        def __init__(self, session, *, settings, rng) -> None:
+            return None
+
+        async def trigger_manual_disease(self, *, now, group_id=None):
+            return DiseaseAnnouncement(
+                roll_id=1,
+                telegram_group_id=-4630268163,
+                text="🤒 Тестовая свинья словила тестовую болезнь.",
+                group_title="Migrated Group",
+            )
+
+    class MigratingBot(FakeBot):
+        async def send_message(self, chat_id: int, text: str, **kwargs):
+            if chat_id == -4630268163:
+                raise TelegramMigrateToChat(
+                    SendMessage(chat_id=chat_id, text=text),
+                    "group chat was upgraded to a supergroup chat",
+                    -1003733861005,
+                )
+            return await super().send_message(chat_id, text, **kwargs)
+
+    @asynccontextmanager
+    async def fake_session_scope(session_factory):
+        yield SimpleNamespace()
+
+    monkeypatch.setattr(admin_router_module, "DiseaseService", FakeDiseaseService)
+    monkeypatch.setattr(admin_router_module, "session_scope", fake_session_scope)
+
+    message = FakePrivateMessage(user_id=241301944)
+    command = SimpleNamespace(args=None)
+    fake_bot = MigratingBot()
+    app_context = SimpleNamespace(
+        settings=SimpleNamespace(is_admin_telegram_user=lambda telegram_user_id: telegram_user_id == 241301944),
+        bot=fake_bot,
+        rng=None,
+        session_factory=object(),
+    )
+
+    await admin_router_module.admin_disease_handler(message, command, app_context)
+
+    assert len(fake_bot.messages) == 1
+    assert fake_bot.messages[0][0] == -1003733861005
+    assert len(message.answers) == 1
+    assert "-1003733861005" in message.answers[0]

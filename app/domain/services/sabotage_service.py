@@ -71,9 +71,9 @@ class SabotageService:
             if attacker is None or target is None:
                 raise PigNotFoundError
 
-            if attacker.status in {PigStatus.ON_RAID, PigStatus.IN_BATTLE, PigStatus.QUARANTINED}:
+            if attacker.status in {PigStatus.ON_RAID, PigStatus.IN_BATTLE, PigStatus.QUARANTINED, PigStatus.DEAD}:
                 raise PigBusyError
-            if target.status in {PigStatus.ON_RAID, PigStatus.IN_BATTLE, PigStatus.QUARANTINED}:
+            if target.status in {PigStatus.ON_RAID, PigStatus.IN_BATTLE, PigStatus.QUARANTINED, PigStatus.DEAD}:
                 raise SabotageBlockedError
 
             remaining = get_remaining_cooldown(attacker.last_sabotage_at, self._settings.sabotage_cooldown, now)

@@ -18,6 +18,7 @@ from app.db.repositories.group_repo import GroupRepository
 from app.domain.rules.timezones import get_game_day
 from app.domain.services.disease_service import DiseaseService
 from app.infra.ngrok import resolve_admin_mini_app_url
+from app.infra.telegram import send_message_with_migration
 
 
 ADMIN_TELEGRAM_USER_ID = 241301944
@@ -173,14 +174,15 @@ async def admin_disease_handler(
         await message.answer("Не получилось запустить болезнь: сейчас ни в одной группе нет доступной свиньи.")
         return
 
-    await app_context.bot.send_message(
+    _, delivered_chat_id = await send_message_with_migration(
+        app_context.bot,
         result.telegram_group_id,
         format_disease_announcement_html(result),
         parse_mode=ParseMode.HTML,
     )
     await message.answer(
         "Болезнь запущена вручную.\n"
-        f"Группа: {result.group_title or 'без названия'} ({result.telegram_group_id})\n\n"
+        f"Группа: {result.group_title or 'без названия'} ({delivered_chat_id})\n\n"
         f"Текст, отправленный в чат:\n{result.text}"
     )
 

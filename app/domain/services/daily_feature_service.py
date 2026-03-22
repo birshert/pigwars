@@ -484,7 +484,7 @@ class DailyFeatureService:
         return pig
 
     def _ensure_pig_is_available(self, pig) -> None:
-        if pig.status in {PigStatus.IN_BATTLE, PigStatus.ON_RAID, PigStatus.QUARANTINED}:
+        if pig.status in {PigStatus.IN_BATTLE, PigStatus.ON_RAID, PigStatus.QUARANTINED, PigStatus.DEAD}:
             raise PigBusyError
 
     def _to_action_state(self, action, *, action_name: str, command_hint: str) -> DailyActionState:

@@ -5,11 +5,11 @@ from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import and_, asc, desc, func, select
+from sqlalchemy import and_, asc, delete, desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
-from app.db.models import Pig, TelegramGroup, TelegramUser
+from app.db.models import Pig, PigDailyAction, PigEffect, PigItem, TelegramGroup, TelegramUser
 from app.domain.models.pig import PigStatus, PigTrait
 
 
@@ -56,6 +56,38 @@ class PigRepository:
             .with_for_update()
         )
         return await self._session.scalar(stmt)
+
+    async def revive(
+        self,
+        pig: Pig,
+        *,
+        name: str,
+        weight_kg: Decimal,
+        trait: PigTrait,
+        mood_score: int = 0,
+        loyalty: int = 50,
+    ) -> Pig:
+        await self._session.execute(delete(PigItem).where(PigItem.pig_id == pig.id))
+        await self._session.execute(delete(PigEffect).where(PigEffect.pig_id == pig.id))
+        await self._session.execute(delete(PigDailyAction).where(PigDailyAction.pig_id == pig.id))
+
+        pig.name = name
+        pig.weight_kg = weight_kg
+        pig.status = PigStatus.IDLE
+        pig.trait = trait
+        pig.mood_score = mood_score
+        pig.loyalty = loyalty
+        pig.wins = 0
+        pig.losses = 0
+        pig.last_feed_at = None
+        pig.last_battle_at = None
+        pig.last_sabotage_at = None
+        pig.last_raid_at = None
+        pig.battle_ready_until = None
+        pig.raid_until = None
+        pig.quarantine_until = None
+        await self._session.flush()
+        return pig
 
     async def get_by_ids_for_update(self, pig_ids: Sequence[UUID]) -> list[Pig]:
         stmt = select(Pig).where(Pig.id.in_(pig_ids)).with_for_update()
@@ -127,7 +159,12 @@ class PigRepository:
         return list(result.all())
 
     async def list_group_ids_with_pigs(self) -> list[int]:
-        stmt = select(Pig.group_id).group_by(Pig.group_id).order_by(Pig.group_id.asc())
+        stmt = (
+            select(Pig.group_id)
+            .where(Pig.status != PigStatus.DEAD)
+            .group_by(Pig.group_id)
+            .order_by(Pig.group_id.asc())
+        )
         result = await self._session.scalars(stmt)
         return list(result.all())
 
@@ -139,7 +176,7 @@ class PigRepository:
     ) -> list[Pig]:
         stmt = select(Pig).where(
             Pig.group_id == group_id,
-            Pig.status == PigStatus.IDLE,
+            Pig.status.in_((PigStatus.IDLE, PigStatus.QUARANTINED)),
         ).order_by(asc(Pig.created_at), asc(Pig.name))
         if excluded_pig_ids:
             stmt = stmt.where(Pig.id.not_in(list(excluded_pig_ids)))
@@ -150,7 +187,7 @@ class PigRepository:
         stmt = (
             select(Pig, TelegramUser)
             .join(TelegramUser, Pig.owner_user_id == TelegramUser.id)
-            .where(Pig.group_id == group_id)
+            .where(Pig.group_id == group_id, Pig.status != PigStatus.DEAD)
             .order_by(desc(Pig.weight_kg), desc(Pig.wins), asc(Pig.name))
             .limit(limit)
         )

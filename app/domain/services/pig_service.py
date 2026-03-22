@@ -11,7 +11,7 @@ from app.db.repositories.pig_repo import PigRepository
 from app.db.repositories.user_repo import UserRepository
 from app.domain.feature_catalog import random_trait
 from app.domain.exceptions import InvalidPigNameError, PigAlreadyExistsError, PigNotFoundError
-from app.domain.models.pig import PigCooldowns, PigSnapshot
+from app.domain.models.pig import PigCooldowns, PigSnapshot, PigStatus
 from app.domain.rules.combat import STARTING_PIG_WEIGHT
 from app.domain.rules.cooldowns import get_remaining_cooldown
 from app.domain.services.daily_feature_service import DailyFeatureService
@@ -66,23 +66,37 @@ class PigService:
                 last_name=last_name,
             )
             existing = await self._pigs.get_by_group_owner(group_id=group.id, owner_user_id=user.id)
-            if existing is not None:
+            if existing is not None and existing.status != PigStatus.DEAD:
                 raise PigAlreadyExistsError
 
             trait = random_trait(self._rng)
-            pig = await self._pigs.create(
-                group_id=group.id,
-                owner_user_id=user.id,
-                name=normalized_name,
-                weight_kg=STARTING_PIG_WEIGHT,
-                trait=trait,
-            )
-            await self._events.create(
-                pig_id=pig.id,
-                group_id=group.id,
-                event_type="pig_created",
-                payload={"name": pig.name, "weight_kg": str(pig.weight_kg), "trait": pig.trait.value},
-            )
+            if existing is None:
+                pig = await self._pigs.create(
+                    group_id=group.id,
+                    owner_user_id=user.id,
+                    name=normalized_name,
+                    weight_kg=STARTING_PIG_WEIGHT,
+                    trait=trait,
+                )
+                await self._events.create(
+                    pig_id=pig.id,
+                    group_id=group.id,
+                    event_type="pig_created",
+                    payload={"name": pig.name, "weight_kg": str(pig.weight_kg), "trait": pig.trait.value},
+                )
+            else:
+                pig = await self._pigs.revive(
+                    existing,
+                    name=normalized_name,
+                    weight_kg=STARTING_PIG_WEIGHT,
+                    trait=trait,
+                )
+                await self._events.create(
+                    pig_id=pig.id,
+                    group_id=group.id,
+                    event_type="pig_reborn",
+                    payload={"name": pig.name, "weight_kg": str(pig.weight_kg), "trait": pig.trait.value},
+                )
             await self._events.create(
                 pig_id=pig.id,
                 group_id=group.id,

@@ -11,6 +11,8 @@ class DiseaseNarrativeContext:
     pig_name: str
     disease_title: str
     disease_summary: str
+    fatal_outcome: bool
+    death_message: str | None
     weight_loss: Decimal
     current_weight: Decimal
     mood_label: str
@@ -26,6 +28,8 @@ class DiseaseNarrativeContext:
             "pig_name": self.pig_name,
             "disease_title": self.disease_title,
             "disease_summary": self.disease_summary,
+            "fatal_outcome": self.fatal_outcome,
+            "death_message": self.death_message,
             "weight_loss_kg": f"{self.weight_loss:.2f}",
             "current_weight_kg": f"{self.current_weight:.2f}",
             "mood_label": self.mood_label,
