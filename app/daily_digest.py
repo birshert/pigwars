@@ -36,6 +36,7 @@ async def list_due_digest_groups(
             digest_day=digest_day,
             now=now,
             limit=limit,
+            allowed_telegram_group_ids=app_context.settings.daily_digest_group_allowlist,
         )
 
 
@@ -48,6 +49,15 @@ async def send_digest_for_group(
 ) -> DailyDigestDispatchResult:
     summary_result = None
     summary_text = None
+
+    if not app_context.settings.is_daily_digest_allowed_for_group(group.telegram_group_id):
+        return DailyDigestDispatchResult(
+            group_title=group.title,
+            telegram_group_id=group.telegram_group_id,
+            digest_day=digest_day,
+            status="skipped",
+            reason="group_not_allowed",
+        )
 
     try:
         async with session_scope(app_context.session_factory) as session:

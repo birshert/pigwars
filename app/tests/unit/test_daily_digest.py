@@ -11,7 +11,7 @@ from app.bot.formatting import format_daily_digest_message
 from app.bot.routers import admin as admin_router_module
 from app.db.models import Battle, GroupDailyDigest, PigEvent
 from app.db.repositories.world_event_repo import WorldEventRepository
-from app.daily_digest import DailyDigestDispatchResult
+from app.daily_digest import DailyDigestDispatchResult, send_digest_for_group
 from app.domain.models.daily_digest import DailyDigestStatus
 from app.domain.services.battle_service import BattleQueueService
 from app.domain.services.daily_digest_facts_service import DailyDigestFactsService
@@ -144,6 +144,8 @@ async def test_worker_sends_daily_digest_once(session_factory, settings, rng, lo
     settings.daily_digest_enabled = True
     settings.daily_digest_hour_msk = 9
     settings.daily_digest_model = "gpt-5-nano"
+    settings.daily_digest_group_allowlist = (-10101,)
+    settings.disease_enabled = False
 
     fixed_now = datetime(2026, 3, 19, 6, 5, tzinfo=timezone.utc)
 
@@ -164,6 +166,16 @@ async def test_worker_sends_daily_digest_once(session_factory, settings, rng, lo
             first_name="Worker",
             last_name=None,
             pig_name="Беконтий",
+            now=fixed_now - timedelta(days=1, hours=1),
+        )
+        await pig_service.create_pig(
+            telegram_group_id=-10102,
+            group_title="Blocked Digest Group",
+            telegram_user_id=2002,
+            username="blocked",
+            first_name="Blocked",
+            last_name=None,
+            pig_name="Молчаливчик",
             now=fixed_now - timedelta(days=1, hours=1),
         )
 
@@ -201,6 +213,7 @@ async def test_worker_sends_daily_digest_once(session_factory, settings, rng, lo
     await run_worker_tick(app_context)
 
     assert len(fake_bot.messages) == 1
+    assert fake_bot.messages[0][0] == -10101
     assert "🌅 Хрюкодайджест за 18.03" in fake_bot.messages[0][1]
 
     async with session_factory() as session:
@@ -209,6 +222,24 @@ async def test_worker_sends_daily_digest_once(session_factory, settings, rng, lo
     assert len(digests) == 1
     assert digests[0].status == DailyDigestStatus.SENT
     assert digests[0].telegram_message_id == 1
+
+
+@pytest.mark.asyncio
+async def test_send_digest_for_group_skips_disallowed_group(settings) -> None:
+    settings.daily_digest_group_allowlist = (-1003740637751, -1003758467163)
+    app_context = SimpleNamespace(settings=settings)
+    group = SimpleNamespace(id=1, title="Blocked Group", telegram_group_id=-1009999999999)
+
+    result = await send_digest_for_group(
+        app_context,
+        group=group,
+        digest_day=datetime(2026, 3, 21, tzinfo=timezone.utc).date(),
+        now=datetime(2026, 3, 22, 6, 0, tzinfo=timezone.utc),
+    )
+
+    assert result.status == "skipped"
+    assert result.reason == "group_not_allowed"
+    assert result.telegram_group_id == -1009999999999
 
 
 @pytest.mark.asyncio

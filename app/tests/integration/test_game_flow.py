@@ -462,13 +462,13 @@ async def test_fallback_match_applies_new_transfer_rules_and_telemetry(session, 
     loser = by_name["Titan"] if winner.name == "Tiny" else by_name["Tiny"]
 
     if winner.name == "Titan":
-        assert winner.weight_kg == Decimal("20.11")
-        assert loser.weight_kg == Decimal("9.62")
-        expected_transfer_multiplier = "0.2625"
+        assert winner.weight_kg == Decimal("20.07")
+        assert loser.weight_kg == Decimal("9.64")
+        expected_transfer_multiplier = "0.1500"
         expected_winner_was_underdog = False
     else:
-        assert winner.weight_kg == Decimal("11.24")
-        assert loser.weight_kg == Decimal("18.85")
+        assert winner.weight_kg == Decimal("10.75")
+        assert loser.weight_kg == Decimal("19.31")
         expected_transfer_multiplier = "1.5525"
         expected_winner_was_underdog = True
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import date, datetime, timedelta
 
 from sqlalchemy import and_, or_, select
@@ -16,7 +17,14 @@ class DailyDigestRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def list_due_groups(self, *, digest_day: date, now: datetime, limit: int) -> list[TelegramGroup]:
+    async def list_due_groups(
+        self,
+        *,
+        digest_day: date,
+        now: datetime,
+        limit: int,
+        allowed_telegram_group_ids: Sequence[int] | None = None,
+    ) -> list[TelegramGroup]:
         stale_before = now - PENDING_RETRY_AFTER
         stmt = (
             select(TelegramGroup)
@@ -42,6 +50,8 @@ class DailyDigestRepository:
             .distinct()
             .limit(limit)
         )
+        if allowed_telegram_group_ids:
+            stmt = stmt.where(TelegramGroup.telegram_group_id.in_(list(allowed_telegram_group_ids)))
         result = await self._session.scalars(stmt)
         return list(result.all())
 

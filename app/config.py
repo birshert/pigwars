@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+from typing import Annotated
 from datetime import timedelta
 from functools import lru_cache
 
 from pydantic import Field, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -46,6 +47,10 @@ class Settings(BaseSettings):
     daily_digest_llm_timeout_seconds: float = Field(8.0, alias="DAILY_DIGEST_LLM_TIMEOUT_SECONDS")
     daily_digest_max_groups_per_tick: int = Field(20, alias="DAILY_DIGEST_MAX_GROUPS_PER_TICK")
     daily_digest_model: str | None = Field("gpt-5-nano", alias="DAILY_DIGEST_MODEL")
+    daily_digest_group_allowlist: Annotated[tuple[int, ...], NoDecode] = Field(
+        default_factory=tuple,
+        alias="DAILY_DIGEST_GROUP_ALLOWLIST",
+    )
     telegram_update_dedup_ttl_seconds: int = Field(
         300,
         alias="TELEGRAM_UPDATE_DEDUP_TTL_SECONDS",
@@ -76,6 +81,15 @@ class Settings(BaseSettings):
     @field_validator("admin_telegram_user_ids", mode="before")
     @classmethod
     def _parse_admin_telegram_user_ids(cls, value: object) -> tuple[int, ...]:
+        return cls._parse_int_tuple(value, env_name="ADMIN_TELEGRAM_USER_IDS")
+
+    @field_validator("daily_digest_group_allowlist", mode="before")
+    @classmethod
+    def _parse_daily_digest_group_allowlist(cls, value: object) -> tuple[int, ...]:
+        return cls._parse_int_tuple(value, env_name="DAILY_DIGEST_GROUP_ALLOWLIST")
+
+    @classmethod
+    def _parse_int_tuple(cls, value: object, *, env_name: str) -> tuple[int, ...]:
         if value in (None, "", ()):
             return ()
         if isinstance(value, str):
@@ -88,7 +102,7 @@ class Settings(BaseSettings):
             return (value,)
         if isinstance(value, (list, tuple, set)):
             return tuple(int(item) for item in value)
-        raise TypeError("ADMIN_TELEGRAM_USER_IDS must be a comma-separated string or a sequence of integers")
+        raise TypeError(f"{env_name} must be a comma-separated string or a sequence of integers")
 
     @property
     def postgres_dsn(self) -> str:
@@ -132,6 +146,11 @@ class Settings(BaseSettings):
 
     def is_admin_telegram_user(self, telegram_user_id: int) -> bool:
         return telegram_user_id in self.admin_telegram_user_ids
+
+    def is_daily_digest_allowed_for_group(self, telegram_group_id: int) -> bool:
+        if not self.daily_digest_group_allowlist:
+            return True
+        return telegram_group_id in self.daily_digest_group_allowlist
 
 
 @lru_cache(maxsize=1)

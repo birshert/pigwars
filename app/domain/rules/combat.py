@@ -15,10 +15,10 @@ MIN_PIG_WEIGHT = Decimal("3.00")
 STARTING_PIG_WEIGHT = Decimal("10.00")
 FEED_GAIN_MIN = Decimal("0.40")
 FEED_GAIN_MAX = Decimal("1.20")
-MAX_BATTLE_WEIGHT_LOSS = Decimal("2.00")
-MIN_BATTLE_WEIGHT_LOSS = Decimal("0.30")
+MAX_BATTLE_WEIGHT_LOSS = Decimal("1.20")
+MIN_BATTLE_WEIGHT_LOSS = Decimal("0.20")
 WINNER_WEIGHT_SHARE = Decimal("0.80")
-WEIGHT_TRANSFER_RATIO = Decimal("0.05")
+WEIGHT_TRANSFER_RATIO = Decimal("0.03")
 PENNY = Decimal("0.01")
 RATIO_QUANT = Decimal("0.01")
 MULTIPLIER_QUANT = Decimal("0.0001")
@@ -91,14 +91,14 @@ def get_weight_transfer_multipliers(
     winner_was_underdog: bool,
 ) -> tuple[Decimal, Decimal]:
     if matchup_class == MatchupClass.FAIR:
-        return ONE, ONE
+        return Decimal("0.75"), Decimal("0.70")
     if matchup_class == MatchupClass.FAVORED:
         if winner_was_underdog:
             return ONE, Decimal("1.10")
-        return Decimal("0.90"), Decimal("0.65")
+        return Decimal("0.75"), Decimal("0.55")
     if winner_was_underdog:
         return Decimal("1.15"), Decimal("1.35")
-    return Decimal("0.75"), Decimal("0.35")
+    return Decimal("0.60"), Decimal("0.25")
 
 
 def calculate_weight_transfer(

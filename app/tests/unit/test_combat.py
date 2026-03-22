@@ -36,7 +36,7 @@ def test_weight_tier_boundaries() -> None:
 
 def test_weight_loss_respects_floor() -> None:
     assert calculate_weight_loss(Decimal("3.10")) == Decimal("0.10")
-    assert calculate_weight_loss(Decimal("50.00")) == Decimal("2.00")
+    assert calculate_weight_loss(Decimal("50.00")) == Decimal("1.20")
 
 
 def test_calculate_underdog_bonus_scales_with_weight_ratio() -> None:
@@ -55,12 +55,12 @@ def test_matchup_classification_uses_weight_ratio_boundaries() -> None:
 
 def test_weight_transfer_multipliers_depend_on_matchup_and_winner() -> None:
     assert get_weight_transfer_multipliers(MatchupClass.FAIR, winner_was_underdog=False) == (
-        Decimal("1.00"),
-        Decimal("1.00"),
+        Decimal("0.75"),
+        Decimal("0.70"),
     )
     assert get_weight_transfer_multipliers(MatchupClass.FAVORED, winner_was_underdog=False) == (
-        Decimal("0.90"),
-        Decimal("0.65"),
+        Decimal("0.75"),
+        Decimal("0.55"),
     )
     assert get_weight_transfer_multipliers(MatchupClass.FAVORED, winner_was_underdog=True) == (
         Decimal("1.00"),
@@ -81,9 +81,23 @@ def test_weight_transfer_softens_stomp_when_favorite_wins() -> None:
     assert transfer.matchup_class == MatchupClass.STOMP
     assert transfer.weight_ratio == Decimal("2.52")
     assert transfer.winner_was_underdog is False
-    assert transfer.loser_loss == Decimal("0.86")
-    assert transfer.winner_gain == Decimal("0.24")
-    assert transfer.transfer_multiplier == Decimal("0.2625")
+    assert transfer.loser_loss == Decimal("0.41")
+    assert transfer.winner_gain == Decimal("0.08")
+    assert transfer.transfer_multiplier == Decimal("0.1500")
+
+
+def test_weight_transfer_softens_medium_heavy_favored_loss() -> None:
+    transfer = calculate_weight_transfer(
+        winner_weight_kg=Decimal("73.23"),
+        loser_weight_kg=Decimal("53.92"),
+    )
+
+    assert transfer.matchup_class == MatchupClass.FAVORED
+    assert transfer.weight_ratio == Decimal("1.36")
+    assert transfer.winner_was_underdog is False
+    assert transfer.loser_loss == Decimal("0.90")
+    assert transfer.winner_gain == Decimal("0.40")
+    assert transfer.transfer_multiplier == Decimal("0.4125")
 
 
 def test_weight_transfer_rewards_stomp_upset() -> None:
@@ -95,8 +109,8 @@ def test_weight_transfer_rewards_stomp_upset() -> None:
     assert transfer.matchup_class == MatchupClass.STOMP
     assert transfer.weight_ratio == Decimal("2.00")
     assert transfer.winner_was_underdog is True
-    assert transfer.loser_loss == Decimal("1.15")
-    assert transfer.winner_gain == Decimal("1.24")
+    assert transfer.loser_loss == Decimal("0.69")
+    assert transfer.winner_gain == Decimal("0.75")
     assert transfer.transfer_multiplier == Decimal("1.5525")
 
 
